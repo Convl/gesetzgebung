@@ -1,0 +1,7 @@
+# Ensure all shell scripts and Yaml files use LF line endings
+*.sh text eol=lf
+*.yml text eol=lf
+
+# Ensure Windows-specific files use CRLF
+*.bat text eol=crlf
+

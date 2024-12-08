@@ -1,0 +1,51 @@
+.autocomplete-container {
+    position: relative;
+    width: 300px; /* Adjust the width as necessary */
+    margin: 0 auto;
+    width: 80%;  /* Use 100% to make the container flexible */
+    max-width: 1000px;  /* You can set a max-width to limit the size on larger screens */
+}
+
+#autocomplete {
+    width: 100%;
+    padding: 10px;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.autocomplete-suggestions {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background-color: #fff;
+    border: 2px solid #ccc;
+    border-top: none;
+    border-radius: 5px;
+    max-height: 200px; /* Limit the height */
+    overflow-y: auto; /* Add scroll if too many suggestions */
+    display: none; /* Hidden by default, shown when typing */
+    list-style-type: none;
+    margin: 0;
+    padding: 0;
+    z-index: 10;
+}
+
+.autocomplete-suggestions .suggestion-item {
+    padding: 10px;
+    cursor: pointer;
+    font-size: 16px;
+    background-color: #fff;
+    transition: background-color 0.3s;
+}
+
+.autocomplete-suggestions .suggestion-item:hover {
+    background-color: #f0f0f0;
+}
+
+/* Show the suggestion box when there are suggestions */
+.autocomplete-suggestions.active {
+    display: block;
+}

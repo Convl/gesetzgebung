@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<script src="{{ url_for('static', filename='renderTimelineEvents.js') }}"> </script>
+<section class="experience pt-100 pb-100" id="experience">
+		<div class="container">
+			<div class="row">
+				<div class="col-xl-12 mx-auto text-center">
+					<div class="section-title">
+						<h4>{{ titel }}</h4>
+                  <p><strong>Beratungsstand: </strong>{{ beratungsstand | safe }}</p>
+                  <p>
+                     <strong>Zustimmungsbeduerftigkeit: </strong>
+                     {% for z in zustimmungsbeduerftigkeit %}
+                        <br> 
+                        {{ z | safe}} 
+                     {% endfor %}
+                  </p>
+						<p><strong>Abstract: </strong>{{ abstract | safe}}</p>
+					</div>
+				</div>
+			</div>
+			<div class="row">
+               <div class="col-xl-12">
+                  <ul class="timeline-list">
+                     {% for info in infos %}
+                        {% if info.has_happened %}
+                           <li>
+                              <div class="timeline_content">
+                                 <span>{{ info.datum }}</span>
+                                 <h4>{{ info.vorgangsposition }}</h4>
+                                 <div class="inner-list">
+                                    {{ info.text | replace('\n', '<br>') | safe }}
+                                 </div>
+                                 <p>{{ info.link | safe }}</p>
+                              </div>
+                           </li>
+                        {% else %}
+                           <li>
+                              <div class="future_timeline_content">
+                                 <span> In der Zukunft </span>
+                                 <h4>{{ info.vorgangsposition }}</h4>
+                                 <div class="inner-list">
+                                    {{ info.text | replace('\n', '<br>') | safe }}
+                                 </div>
+                                 <p>{{ info.link | safe }}</p>
+                              </div>
+                           </li>
+                        {% endif %}
+                     {% endfor %}
+                  </ul>
+               </div>
+            </div>
+		</div>
+	  </section>
+{% endblock %}

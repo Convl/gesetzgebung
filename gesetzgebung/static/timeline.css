@@ -1,0 +1,159 @@
+.pt-100 {
+    padding-top: 100px;
+}
+.pb-100 {
+    padding-bottom: 100px;
+}
+.section-title {
+    margin-bottom: 40px;
+}
+/* name of law */
+.section-title h4 {
+    text-transform: capitalize;
+    font-size: 30px;
+    position: relative;
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    font-weight: 600;
+}
+/* abstract */
+.section-title p {
+    color: #777;
+    font-size: 16px;
+    border: 2px solid #777;
+    padding: 10px;
+}
+ul.timeline-list {
+    position: relative;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+/* vertical timeline-line */
+ul.timeline-list::before {
+    position: absolute;
+    content: "";
+    width: 2px;
+    height: 100%;
+    background-color: #ff3636;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+    animation: growline 4s linear forwards;
+
+
+    height: 0;
+}
+
+/* animate vertical timeline */
+@keyframes growline {
+    0%{
+        height: 0;
+    }
+    100%{
+        height: 100%;
+    }
+}
+/* timeline event */
+ul.timeline-list > li {
+    position: relative;
+    clear: both; /* Ensures proper alternating alignment */
+    margin-bottom: 10px;
+    overflow:hidden; 
+    opacity: 0; /* Initially hidden */
+    transform: translateY(20px); /* Slightly shifted down */
+    transition: opacity 0.3s ease-in, transform 0.3s ease-in; /* Smooth animation */
+}
+ul.timeline-list > li.visible {
+    opacity: 1;
+    transform: translateY(0); /* Moves into place */
+}
+ul.timeline-list > li .timeline_content,
+ul.timeline-list > li .future_timeline_content {
+    border: 2px solid #ff3636;
+    box-sizing: border-box;
+    background-color: #fff;
+    width: 45%;
+    color: #333;
+    padding: 20px;
+    padding-bottom: 0px; /* TODO: find out why there is still some padding to the bottom */
+    box-sizing: border-box;
+    min-height: 150px; /* Uniform height */
+    position: relative;
+}
+ul.timeline-list > li .future_timeline_content {
+    border: 2px solid #333
+}
+ul.timeline-list > li:nth-child(odd) .timeline_content,
+ul.timeline-list > li:nth-child(odd) .future_timeline_content {
+    float: left;
+    text-align: left; /* change to even looks nice, but messes up nested lists */
+}
+ul.timeline-list > li:nth-child(even) .timeline_content,
+ul.timeline-list > li:nth-child(even) .future_timeline_content {
+    float: right;
+    text-align: left;
+}
+/* red dot on timeline */
+ul.timeline-list > li:before {
+    position: absolute;
+    content: "";
+    width: 25px;
+    height: 25px;
+    background-color: #ff3636;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    z-index: 1; /* del? */
+
+
+    opacity: 0;
+    transition: opacity 0.3s ease-in;
+}
+
+ul.timeline-list li.visible:before {
+    opacity: 1;
+}
+
+.timeline_content span,
+.future_timeline_content span {
+    font-size: 18px;
+    font-weight: 500;
+    font-family: poppins;
+    color: #ff3636;
+}
+
+@media (max-width: 768px) {
+    /* Move all timeline content to the left */
+    ul.timeline-list li .timeline_content,
+    ul.timeline-list li .future_timeline_content {
+        float: left !important;
+        text-align: left !important;
+        width: calc(100% - 40px);
+        box-sizing: border-box;
+        margin-bottom: 30px; /* Add spacing between items */
+        margin-left: 35px;
+        margin-right: 20px;
+    }
+
+    /* Adjust timeline line position */
+    ul.timeline-list:before {
+        left: 13px; /* Ensure the line is visible to the left */
+        background-color: #ff3636;
+    }
+
+    /* Adjust dots position */
+    ul.timeline-list li:before {
+        left: 13px; /* Align dots with the timeline line */
+        top: 50%; /* Center the dots vertically relative to the item */
+    }
+}
+
+/* slight modifications to info.text, which uses <ul> quite a bit */
+.timeline_content ul,
+.future_timeline_content ul {
+    list-style: disc; /* Restore normal list bullet style */
+    margin-left: 20px; /* Indent the list */
+    padding: 0;
+}
