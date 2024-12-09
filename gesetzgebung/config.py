@@ -12,7 +12,7 @@ from gesetzgebung.daily_update import daily_update
 
 load_dotenv()
 
-locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
+locale.setlocale(locale.LC_TIME, 'de_DE.utf8')
 
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD")
 POSTGRES_HOST = "localhost"
