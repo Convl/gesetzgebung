@@ -1,4 +1,5 @@
-from elasticsearch import Elasticsearch
+# from elasticsearch import Elasticsearch
+from elasticsearch7 import Elasticsearch
 import os
 
 ES_HOST = os.environ.get("ES_HOST")
@@ -47,7 +48,10 @@ index_body = {
   }
 }
 
-es = Elasticsearch("http://localhost:9200", basic_auth=(ES_USER, ES_PASSWORD))
+# es = Elasticsearch(ES_HOST, basic_auth=(ES_USER, ES_PASSWORD))
+es = Elasticsearch("https://sgwqy1rne3:6emp8y05tp@gesetzgebung-8465192477.eu-central-1.bonsaisearch.net:443",
+                   verify_certs=False,
+                   headers={"x-elastic-product": "Elasticsearch"})
 
 if not es.indices.exists(index=ES_LAWS_INDEX):
     es.indices.create(index=ES_LAWS_INDEX, body=index_body)
