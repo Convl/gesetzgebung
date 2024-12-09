@@ -6,7 +6,8 @@ import time
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
-from elasticsearch.exceptions import NotFoundError
+# from elasticsearch.exceptions import NotFoundError
+from elasticsearch7.exceptions import NotFoundError
 
 dotenv.load_dotenv()
 

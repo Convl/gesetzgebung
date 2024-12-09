@@ -1,5 +1,6 @@
 
-from elasticsearch import Elasticsearch
+# from elasticsearch import Elasticsearch
+from elasticsearch7 import Elasticsearch
 import os
 import locale
 from dotenv import load_dotenv
