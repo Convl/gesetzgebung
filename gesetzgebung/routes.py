@@ -1,5 +1,5 @@
 from gesetzgebung.config import app, es
-from gesetzgebung import laws, ES_LAWS_INDEX
+from gesetzgebung import ES_LAWS_INDEX
 from gesetzgebung.models import *
 from gesetzgebung.helpers import *
 from flask import render_template, request, jsonify
@@ -132,7 +132,7 @@ def submit():
                     " Die Beschlüsse des Bundestags lauten: \n\n"
                     text += parse_beschluesse(law, beschluesse or beschluesse["2. und 3. Beratung"])
                 
-                if any(beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in beschluesse):
+                if any(beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in position.beschluesse):
                     info["passed"] = False
 
             case "3. Beratung":
@@ -352,7 +352,7 @@ def submit():
 
 @app.route('/autocomplete')
 def autocomplete():
-    query = request.args.get('q', '')
+    query = request.args.get('q', '').lower()
     if query == '':
         return jsonify([])
     
@@ -361,16 +361,11 @@ def autocomplete():
                              'query': {
                                  'multi_match': {
                                      'query': query,
-                                     'fields': ['titel^3', 'abstract'],
-                                     "type": "phrase_prefix",
+                                     'fields': ['titel^2', 'abstract'],
+                                     'type': 'best_fields' # maybe experiment with most_fields or cross_fields, also maybe add 'fuzziness': 'AUTO'
                                  }
                              },
                              'size': 10
                          })
     suggestions = [{'id': hit['_id'], 'titel': hit['_source']['titel']} for hit in response['hits']['hits']]
     return jsonify(suggestions)
-
-
-# search = es.search(index="laws_index", query={'multi_match': {'query': 'Selbstbestimmungsgesetz', 'fields': ['*']}})
-#     for s in search.get('hits', {}).get('hits', {}):
-#         res = get_law_by_id(s.get('_id', 1))

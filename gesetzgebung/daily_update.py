@@ -6,6 +6,8 @@ import datetime
 import time
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
+from gesetzgebung.es_file import es, ES_LAWS_INDEX
+from elasticsearch.exceptions import NotFoundError
 
 dotenv.load_dotenv()
 
@@ -71,7 +73,9 @@ def daily_update():
                     update_inkrafttreten()
 
                 db.session.commit()
-
+                
+                update_law_in_es(law)
+                
                 updated_and_new_ids.append(item.get("id", None))
 
                 time.sleep(1)
@@ -203,3 +207,17 @@ def update_ueberweisungen(position, ueberweisungen):
 
         ueberweisung.position = position
         db.session.add(ueberweisung)
+
+def update_law_in_es(law):
+    try:
+        es_law = es.get(index=ES_LAWS_INDEX, id=law.id)
+        if law.titel == es_law['_source'].get('titel') and law.abstract == es_law["_source"].get('abstract'):
+            return
+        
+    except NotFoundError:
+        pass
+    
+    es.index(index=ES_LAWS_INDEX, id=law.id, document={
+        'titel': law.titel,
+        'abstract': law.abstract
+    })
