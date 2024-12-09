@@ -1,6 +1,9 @@
 # Notizen
 notizen/
 
+# Custom file ending for stuff to ignore
+*.ignore
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

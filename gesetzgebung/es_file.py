@@ -1,7 +1,7 @@
 from elasticsearch import Elasticsearch
 import os
 
-ES_HOST = "http://localhost:9200"
+ES_HOST = os.environ.get("ES_HOST")
 ES_USER = os.environ.get("ES_USER")
 ES_PASSWORD = os.environ.get("ES_PASSWORD")
 ES_LAWS_INDEX = "laws_index"
