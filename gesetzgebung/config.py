@@ -15,12 +15,12 @@ locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
 
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD")
 POSTGRES_HOST = "localhost"
-
+DATABASE_URI = os.environ.get("DATABASE_URL", '').replace('postgres://', 'postgresql://') or f"postgresql://postgres:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/gesetze"
 
 class Config:
     SCHEDULER_API_ENABLED = True
 
-app.config['SQLALCHEMY_DATABASE_URI'] = f"postgresql://postgres:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:5432/gesetze"
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config.from_object(Config)
 
