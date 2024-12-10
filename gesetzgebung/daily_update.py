@@ -40,6 +40,7 @@ def daily_update():
         while response.ok and cursor != response.json().get("cursor", None):
             for item in response.json().get("documents", []):
                 law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben() 
+                print(f"Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
 
                 #if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
                 law.dip_id = item.get("id", None)
