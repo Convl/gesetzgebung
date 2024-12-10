@@ -72,9 +72,12 @@ def daily_update():
                 print(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
 
                 time.sleep(1)
-                
+            
+            print(f"old cursor: {cursor}")
             params["cursor"] = cursor = response.json().get("cursor", None)
+            print(f"new cursor: {cursor}")
             response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
+            print(f"next cursor: {response.json().get("cursor", None)}")
 
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
