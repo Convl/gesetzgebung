@@ -1,6 +1,10 @@
 # from elasticsearch import Elasticsearch
 from elasticsearch7 import Elasticsearch
 import os
+import warnings
+from urllib3.exceptions import InsecureRequestWarning
+
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 ES_HOST = os.environ.get("ES_HOST")
 ES_USER = os.environ.get("ES_USER")
