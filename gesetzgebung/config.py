@@ -2,6 +2,7 @@
 # from elasticsearch import Elasticsearch
 from elasticsearch7 import Elasticsearch
 import os
+import datetime
 import locale
 from dotenv import load_dotenv
 from flask_apscheduler import APScheduler
@@ -30,4 +31,4 @@ db.init_app(app)
 scheduler = APScheduler()
 scheduler.init_app(app)
 scheduler.start()
-# scheduler.add_job(id="daily_update", func=daily_update, trigger="interval", hours=24)
+scheduler.add_job(id="daily_update", func=daily_update, trigger="interval", hours=24, next_run_time=datetime.datetime.now())

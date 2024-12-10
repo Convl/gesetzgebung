@@ -9,7 +9,7 @@ import copy
 
 @app.route("/bla")
 def bla():
-    # return "henlo"
+    return "henlo"
     daily_update()
     return "henlo"
     

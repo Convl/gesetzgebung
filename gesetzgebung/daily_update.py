@@ -16,12 +16,6 @@ DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"
 DIP_ENDPOINT_VORGANG = "https://search.dip.bundestag.de/api/v1/vorgang/"
 DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = "https://search.dip.bundestag.de/api/v1/vorgangsposition"
 DIP_ENDPOINT_VORGANGSPOSITION = "https://search.dip.bundestag.de/api/v1/vorgangsposition/"
-POSTGRES_USER = os.environ.get("POSTGRES_USER")
-POSTGRES_HOST = os.environ.get("POSTGRES_HOST")
-POSTGRES_PORT = os.environ.get("POSTGRES_PORT")
-POSTGRES_DB_NAME = os.environ.get("POSTGRES_DB_NAME")
-POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD")
-DATABASE_URI = f'postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}/{POSTGRES_DB_NAME}'
 FIRST_DATE_TO_CHECK = "2021-10-26"
 LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -42,7 +36,6 @@ def daily_update():
 
         cursor = ""
         response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
-        updated_and_new_ids = []
 
         while response.ok and cursor != response.json().get("cursor", None):
             for item in response.json().get("documents", []):
@@ -76,7 +69,7 @@ def daily_update():
                 
                 update_law_in_es(law)
                 
-                updated_and_new_ids.append(item.get("id", None))
+                print(f"Updated: {item.get("id", None)}")
 
                 time.sleep(1)
                 
