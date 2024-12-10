@@ -3,14 +3,14 @@ from gesetzgebung import ES_LAWS_INDEX
 from gesetzgebung.models import *
 from gesetzgebung.helpers import *
 from flask import render_template, request, jsonify
-from gesetzgebung.daily_update import daily_update # TODO: remove
+# from gesetzgebung.daily_update import daily_update # TODO: remove
 import datetime
 import copy
 
 @app.route("/bla")
 def bla():
     return "henlo"
-    daily_update()
+    # daily_update()
     return "henlo"
     
 @app.route('/', methods=["GET", "POST"])
