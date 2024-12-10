@@ -3,15 +3,13 @@ from gesetzgebung import ES_LAWS_INDEX
 from gesetzgebung.models import *
 from gesetzgebung.helpers import *
 from flask import render_template, request, jsonify
-# from gesetzgebung.daily_update import daily_update # TODO: remove
 import datetime
 import copy
 
 @app.route("/bla")
 def bla():
     return "henlo"
-    # daily_update()
-    return "henlo"
+
     
 @app.route('/', methods=["GET", "POST"])
 @app.route('/index')
@@ -133,8 +131,12 @@ def submit():
                     " Die Beschlüsse des Bundestags lauten: \n\n"
                     text += parse_beschluesse(law, beschluesse)
                 
-                if any(beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in position.beschluesse):
-                    info["passed"] = False
+                for beschluss in position.beschluesse:
+                    if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
+                        info["passed"] = False
+                    # if beschluss.beschlusstenor == "Ablehnung der Vorlage": # is this enough, or do we need to check beschluss.dokumentnummer against fundstellen to see precisely what was denied?
+                    #     info["marks_failure"] = True
+
 
             case "3. Beratung":
                 daten_zweite_beratung = db.session.execute(db.select(Vorgangsposition.datum).filter(Vorgangsposition.vorgangs_id == law.id, Vorgangsposition.nachtrag == False,
@@ -148,8 +150,11 @@ def submit():
                 text += " Der Beschluss des Bundestags lautet: \n\n" if len(beschluesse) == 1 else " Die Beschlüsse des Bundestags lauten: \n\n"
                 text += parse_beschluesse(law, beschluesse)
 
-                if any(beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in beschluesse):
-                    info["passed"] = False
+                for beschluss in position.beschluesse:
+                    if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
+                        info["passed"] = False
+                    # if beschluss.beschlusstenor == "Ablehnung der Vorlage": # is this enough, or do we need to check beschluss.dokumentnummer against fundstellen to see precisely what was denied?
+                    #     info["marks_failure"] = True
 
             case "1. Durchgang": 
                 text = "Der 1. Durchgang im Bundesrat findet statt."

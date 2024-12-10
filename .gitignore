@@ -4,6 +4,9 @@ notizen/
 # Custom file ending for stuff to ignore
 *.ignore
 
+#WSL virtual environment for running heroku app locally
+.venv-wsl/ 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
