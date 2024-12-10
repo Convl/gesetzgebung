@@ -144,9 +144,8 @@ def get_position_by_dip_id(id) -> Vorgangsposition:
         joinedload(Vorgangsposition.ueberweisungen)).filter(Vorgangsposition.dip_id == id).first()   
 
 def get_last_update():
-    # return db.session.query(AppMetadata).filter_by(key="last_update").one_or_none()
-    return "2024-12-01T20:00:00"
-
+    return db.session.query(AppMetadata).filter_by(key="last_update").one_or_none()
+    
 def set_last_update(update):
     if (last_update := db.session.query(AppMetadata).filter_by(key='last_update').one_or_none()):
         last_update.value = update
