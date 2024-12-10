@@ -1,4 +1,4 @@
-from gesetzgebung.config import app, db, es, ES_LAWS_INDEX, scheduler
+from gesetzgebung.config import app, db, es, ES_LAWS_INDEX
 from gesetzgebung.models import get_all_laws
 
 
