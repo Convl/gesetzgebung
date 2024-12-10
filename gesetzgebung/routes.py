@@ -130,7 +130,7 @@ def submit():
                     "Die 2. Lesung und Schlussabstimmung im Bundestag findet statt."
                     text += " Der Beschluss des Bundestags lautet: \n\n" if len(beschluesse) == 1 else \
                     " Die Beschlüsse des Bundestags lauten: \n\n"
-                    text += parse_beschluesse(law, beschluesse or beschluesse["2. und 3. Beratung"])
+                    text += parse_beschluesse(law, beschluesse)
                 
                 if any(beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in position.beschluesse):
                     info["passed"] = False
