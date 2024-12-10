@@ -21,7 +21,7 @@ def index():
 @app.route('/submit', methods=["POST"])
 def submit():
     law_id = request.form.get('id')
-    if not (law := get_law_by_id(law_id)):
+    if law_id == "" or not (law := get_law_by_id(law_id)):
         return render_template("error.html")
 
     # ------------------ Phase 0: Gather preliminary information ----------------- #
