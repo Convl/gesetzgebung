@@ -3,7 +3,6 @@ import requests
 import dotenv
 import datetime
 import time
-import inspect
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
@@ -24,13 +23,6 @@ headers = {"Authorization": "ApiKey " + DIP_API_KEY}
 
 def daily_update(): 
     with app.app_context():
-        frame = inspect.currentframe().f_back
-        caller_info = inspect.getframeinfo(frame)
-    
-        print(f"daily_update called from: {caller_info.filename}, "
-            f"function: {caller_info.function}, "
-            f"line: {caller_info.lineno}")
-    
         params =    {"f.vorgangstyp": "Gesetzgebung",
                      "f.datum.start": FIRST_DATE_TO_CHECK,
                      "f.aktualisiert.start": last_update
