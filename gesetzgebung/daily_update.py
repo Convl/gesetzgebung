@@ -3,6 +3,7 @@ import requests
 import dotenv
 import datetime
 import time
+import inspect
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
@@ -23,7 +24,13 @@ headers = {"Authorization": "ApiKey " + DIP_API_KEY}
 
 def daily_update(): 
     with app.app_context():
-
+        frame = inspect.currentframe().f_back
+        caller_info = inspect.getframeinfo(frame)
+    
+        print(f"daily_update called from: {caller_info.filename}, "
+            f"function: {caller_info.function}, "
+            f"line: {caller_info.lineno}")
+    
         params =    {"f.vorgangstyp": "Gesetzgebung",
                      "f.datum.start": FIRST_DATE_TO_CHECK,
                      "f.aktualisiert.start": last_update
@@ -40,7 +47,7 @@ def daily_update():
         while response.ok and cursor != response.json().get("cursor", None):
             for item in response.json().get("documents", []):
                 law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben() 
-                print(f"Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
+                print(f"Processing Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
 
                 #if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
                 law.dip_id = item.get("id", None)
@@ -70,7 +77,7 @@ def daily_update():
                 
                 update_law_in_es(law)
                 
-                print(f"Updated: {item.get("id", None)}")
+                print(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
 
                 time.sleep(1)
                 
