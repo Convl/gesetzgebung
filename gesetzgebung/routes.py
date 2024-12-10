@@ -312,7 +312,7 @@ def submit():
             if law.inkrafttreten:
                 for inkraft in law.inkrafttreten:
                     erlaeuterung = f" ({inkraft.erlaeuterung})" if inkraft.erlaeuterung else " "
-                    info["text"] += f"\n\nDas Gesetz{erlaeuterung} ist <strong>am {inkraft.datum.strftime("%d. %B %Y")} in Kraft getreten</strong>." if inkraft.datum <= datetime.datetime.now() \
+                    info["text"] += f"\n\nDas Gesetz{erlaeuterung} ist <strong>am {inkraft.datum.strftime("%d. %B %Y")} in Kraft getreten</strong>." if inkraft.datum <= datetime.datetime.now().date() \
                         else f"\n\nDas Gesetz{erlaeuterung} <strong>wird am {inkraft.datum.strftime("%d. %B %Y")} in Kraft treten</strong>."
             else:
                 info["text"] += "\n\nZum <strong>Datum des Inkrafttretens</strong> ist noch nichts bekannt."
