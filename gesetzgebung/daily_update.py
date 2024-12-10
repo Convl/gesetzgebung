@@ -210,7 +210,7 @@ def update_law_in_es(law):
     except NotFoundError:
         pass
     
-    es.index(index=ES_LAWS_INDEX, id=law.id, document={
+    es.index(index=ES_LAWS_INDEX, id=law.id, doc={
         'titel': law.titel,
         'abstract': law.abstract
     })
