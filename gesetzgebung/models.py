@@ -2,7 +2,7 @@ from gesetzgebung.database import db
 from typing import List, ClassVar
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, func
-import copy
+
 
 class AppMetadata(db.Model):
     __tablename__ = 'app_metadata'

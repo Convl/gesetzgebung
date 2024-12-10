@@ -1,4 +1,5 @@
 from gesetzgebung.models import *
+import copy
 
 bundeslaender = {"Bayern", "Niedersachsen", "Baden-Württemberg", "Nordrhein-Westfalen", "Brandenburg", "Mecklenburg-Vorpommern", 
                  "Hessen", "Sachsen-Anhalt", "Rheinland-Pfalz", "Sachsen", "Thüringen", "Schleswig-Holstein",
