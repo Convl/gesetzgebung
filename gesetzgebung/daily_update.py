@@ -63,7 +63,7 @@ def daily_update():
                     update_verkuendung(item.get("verkuendung", []), law)
 
                 if item.get("inkrafttreten", []):
-                    update_inkrafttreten()
+                    update_inkrafttreten(item.get("inkrafttreten", []), law)
 
                 db.session.commit()
                 
