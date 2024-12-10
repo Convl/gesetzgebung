@@ -217,3 +217,6 @@ def update_law_in_es(law):
         'titel': law.titel,
         'abstract': law.abstract
     })
+
+if __name__ == "__main__":
+    daily_update()

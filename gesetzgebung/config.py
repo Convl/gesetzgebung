@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from gesetzgebung.flask_file import app
 from gesetzgebung.database import db
 from gesetzgebung.es_file import *
-from gesetzgebung.daily_update import daily_update
 
 load_dotenv()
 
