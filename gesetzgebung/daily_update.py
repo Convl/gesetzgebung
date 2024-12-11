@@ -36,7 +36,9 @@ def daily_update():
 
         cursor = ""
         response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
-
+        
+        print("Starting daily update")
+        
         while response.ok and cursor != response.json().get("cursor", None):
             for item in response.json().get("documents", []):
                 law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben() 
