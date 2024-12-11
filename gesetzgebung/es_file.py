@@ -6,9 +6,7 @@ from urllib3.exceptions import InsecureRequestWarning
 
 warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
-ES_HOST = os.environ.get("ES_HOST")
-ES_USER = os.environ.get("ES_USER")
-ES_PASSWORD = os.environ.get("ES_PASSWORD")
+ES_HOST = os.environ.get("ES_HOST") or os.environ.get("LOCAL_ES_HOST")
 ES_LAWS_INDEX = "laws_index"
 
 index_body = {
@@ -52,8 +50,8 @@ index_body = {
   }
 }
 
-# es = Elasticsearch(ES_HOST, basic_auth=(ES_USER, ES_PASSWORD))
-es = Elasticsearch("https://sgwqy1rne3:6emp8y05tp@gesetzgebung-8465192477.eu-central-1.bonsaisearch.net:443",
+# es = Elasticsearch(ES_HOST)
+es = Elasticsearch(ES_HOST,
                    verify_certs=False,
                    headers={"x-elastic-product": "Elasticsearch"})
 

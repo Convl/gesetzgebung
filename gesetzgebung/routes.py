@@ -1,16 +1,12 @@
-from gesetzgebung.config import app, es
-from gesetzgebung import ES_LAWS_INDEX
+from gesetzgebung.es_file import es, ES_LAWS_INDEX
+from gesetzgebung.flask_file import app
 from gesetzgebung.models import *
 from gesetzgebung.helpers import *
 from flask import render_template, request, jsonify
 import datetime
 import copy
 
-@app.route("/bla")
-def bla():
-    return "henlo"
 
-    
 @app.route('/', methods=["GET", "POST"])
 @app.route('/index')
 def index():

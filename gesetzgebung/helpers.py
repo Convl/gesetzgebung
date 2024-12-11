@@ -126,11 +126,11 @@ def parse_actors(actors, kasus, capitalize=False, iterable=False):
         if kasus == praepositionen_genitiv:
             if first_word in bundeslaender: # "des LANDES Bayern"
                 praeposition += " Landes"
-            elif genera[first_word] == 'm': # "des BundestagES"
+            elif genera[first_word] == 'm': 
                 if actor.startswith("Ausschuss"):
-                    actor = actor[:9] + "es" + actor[9:]
+                    actor = actor[:9] + "es" + actor[9:] # "des AusschussES für Familie, Bildung..."
                 else:
-                    actor += "es"
+                    actor += "es" # "des BundestagES"
             elif genera[first_word] == 'n': # "des BundesministeriumS"
                 actor += "s"
         else:
