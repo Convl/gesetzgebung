@@ -5,7 +5,7 @@ notizen/
 *.ignore
 
 #WSL virtual environment for running heroku app locally
-.venv-wsl/ 
+.wsl-stuff/ 
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
