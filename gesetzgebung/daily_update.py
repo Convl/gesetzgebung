@@ -1,14 +1,16 @@
 import requests
-import dotenv
+from dotenv import load_dotenv
 import datetime
 import time
+import os
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
 # from elasticsearch.exceptions import NotFoundError
 from elasticsearch7.exceptions import NotFoundError
 
-dotenv.load_dotenv()
+basedir = os.path.abspath(os.path.dirname(__file__))
+load_dotenv(os.path.join(basedir, '.env'))
 
 DIP_API_KEY = "I9FKdCn.hbfefNWCY336dL6x62vfwNKpoN2RZ1gp21"
 DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"

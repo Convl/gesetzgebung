@@ -6,7 +6,8 @@ from gesetzgebung.flask_file import app
 from gesetzgebung.database import db
 from gesetzgebung.es_file import *
 
-load_dotenv()
+basedir = os.path.abspath(os.path.dirname(__file__))
+load_dotenv(os.path.join(basedir, '.env'))
 
 locale.setlocale(locale.LC_TIME, 'de_DE.utf8')
 
