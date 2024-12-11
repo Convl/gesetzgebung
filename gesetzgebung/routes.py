@@ -38,6 +38,7 @@ def submit(law_titel):
     else "Bundesrat"  # law.initiative is None if a random group of Abgeordnete initiates the law, which effectively equates to "Bundestag"
     pfad = copy.deepcopy(pfade[initiative])
 
+    law.vorgangspositionen.sort(key=lambda vp: vp.datum) # TODO: Find out why this is even necessary (in rare cases, like dip_id 315332)
     infos = []
 
     # ---- Phase I: Parse all Vorgangspositionen (what has happened thus far) ---- #
@@ -61,10 +62,13 @@ def submit(law_titel):
         match position.vorgangsposition:
 
             case 'Gesetzentwurf':
-                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
-                text += " legt" if len(position.urheber_titel) == 1 else " legen"
-                text += f" dem {zuordnungen[position.zuordnung]} den Gesetzentwurf vor."
-                info["vorgangsposition"] = "Gesetzentwurf im Bundestag" if position.zuordnung == "BT" else "Gesetzentwurf im Bundesrat" # TODO any other zuordnungen possible?
+                if position.urheber_titel:
+                    text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
+                    text += " legt" if len(position.urheber_titel) == 1 else " legen"
+                    text += f" dem {zuordnungen[position.zuordnung]} den Gesetzentwurf vor."
+                else:
+                    text = f"Der Gesetzentwurf wird im {zuordnungen[position.zuordnung]} eingebracht."
+                info["vorgangsposition"] = "Gesetzentwurf im Bundestag" if position.zuordnung == "BT" else "Gesetzentwurf im Bundesrat"
 
             case "1. Beratung" | "Zurückverweisung an die Ausschüsse in 2./3. Beratung":
                 ausschuesse = sorted(

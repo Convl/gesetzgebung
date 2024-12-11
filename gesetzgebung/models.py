@@ -18,7 +18,7 @@ class Beschlussfassung(db.Model):
     abstimm_ergebnis_bemerkung = db.Column(db.String(250), nullable=True)
     seite = db.Column(db.String(100), nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
-    position = db.relationship('Vorgangsposition', back_populates='beschluesse', lazy='select')
+    position = db.relationship('Vorgangsposition', back_populates='beschluesse', lazy=False)
 
 class Fundstelle(db.Model):
     __tablename__ = 'fundstellen'
@@ -35,7 +35,7 @@ class Fundstelle(db.Model):
     anfangsquadrant = db.Column(db.String(250), nullable=True)
     endquadrant = db.Column(db.String(250), nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
-    position = db.relationship('Vorgangsposition', back_populates='fundstelle', lazy='select')
+    position = db.relationship('Vorgangsposition', back_populates='fundstelle', lazy=False)
 
 class Ueberweisung(db.Model):
     __tablename__ = 'ueberweisungen'
@@ -45,7 +45,7 @@ class Ueberweisung(db.Model):
     ausschuss_kuerzel = db.Column(db.String(250), nullable=True)
     federfuehrung = db.Column(db.Boolean, nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
-    position = db.relationship('Vorgangsposition', back_populates='ueberweisungen', lazy='select')
+    position = db.relationship('Vorgangsposition', back_populates='ueberweisungen', lazy=False)
 
 class Vorgangsposition(db.Model):
     __tablename__ = 'positionen'
@@ -63,12 +63,12 @@ class Vorgangsposition(db.Model):
     datum = db.Column(db.Date, nullable=True)
     aktualisiert = db.Column(db.DateTime, nullable=True)
     
-    ueberweisungen : ClassVar[List[Ueberweisung]] = db.relationship('Ueberweisung', back_populates='position', lazy='select')
-    fundstelle : ClassVar[Fundstelle] = db.relationship('Fundstelle', back_populates='position', lazy='select', uselist=False)
-    beschluesse : ClassVar[List[Beschlussfassung]] = db.relationship('Beschlussfassung', back_populates='position', lazy='select')
+    ueberweisungen : ClassVar[List[Ueberweisung]] = db.relationship('Ueberweisung', back_populates='position', lazy=False)
+    fundstelle : ClassVar[Fundstelle] = db.relationship('Fundstelle', back_populates='position', lazy=False, uselist=False)
+    beschluesse : ClassVar[List[Beschlussfassung]] = db.relationship('Beschlussfassung', back_populates='position', lazy=False)
     
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
-    gesetz = db.relationship('GesetzesVorhaben', back_populates='vorgangspositionen', lazy='select')
+    gesetz = db.relationship('GesetzesVorhaben', back_populates='vorgangspositionen', lazy=False)
 
 class Verkuendung(db.Model):
     __tablename__ = 'verkuendungen'
@@ -81,7 +81,7 @@ class Verkuendung(db.Model):
     fundstelle = db.Column(db.String(250), nullable=True)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
-    vorhaben = db.relationship('GesetzesVorhaben', back_populates='verkuendung', lazy='select') # TODO rename these, always to the form of verkuendung_vorhaben
+    vorhaben = db.relationship('GesetzesVorhaben', back_populates='verkuendung', lazy=False) # TODO rename these, always to the form of verkuendung_vorhaben
 
 class Inkrafttreten(db.Model):
     __tablename__ = 'inkrafttreten'
@@ -91,7 +91,7 @@ class Inkrafttreten(db.Model):
     erlaeuterung = db.Column(db.Text)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
-    inkrafttreten_vorhaben = db.relationship('GesetzesVorhaben', back_populates='inkrafttreten', lazy='select')
+    inkrafttreten_vorhaben = db.relationship('GesetzesVorhaben', back_populates='inkrafttreten', lazy=False)
 
 
 class GesetzesVorhaben(db.Model):
@@ -109,9 +109,9 @@ class GesetzesVorhaben(db.Model):
     inkrafttreten = db.Column(db.ARRAY(db.Date), nullable=True)
     titel = db.Column(db.Text, nullable=True)
     datum = db.Column(db.Date, nullable=True)
-    vorgangspositionen : ClassVar[List[Vorgangsposition]] = db.relationship('Vorgangsposition', back_populates='gesetz', lazy='select')
-    verkuendung : ClassVar[List[Verkuendung]] = db.relationship('Verkuendung', back_populates='vorhaben', lazy='select') 
-    inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship('Inkrafttreten', back_populates='inkrafttreten_vorhaben', lazy='select')
+    vorgangspositionen : ClassVar[List[Vorgangsposition]] = db.relationship('Vorgangsposition', back_populates='gesetz', lazy=False)
+    verkuendung : ClassVar[List[Verkuendung]] = db.relationship('Verkuendung', back_populates='vorhaben', lazy=False) 
+    inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship('Inkrafttreten', back_populates='inkrafttreten_vorhaben', lazy=False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -122,14 +122,7 @@ def get_all_laws() -> List[GesetzesVorhaben]:
 
 def get_law_by_id(id) -> GesetzesVorhaben:
     id = int(id)
-    # return db.session.query(GesetzesVorhaben).options(joinedload(GesetzesVorhaben.vorgangspositionen)).filter(GesetzesVorhaben.id == id).first()
-    return db.session.query(GesetzesVorhaben).options(
-        joinedload(GesetzesVorhaben.vorgangspositionen).joinedload(Vorgangsposition.beschluesse),
-        joinedload(GesetzesVorhaben.vorgangspositionen).joinedload(Vorgangsposition.fundstelle),
-        joinedload(GesetzesVorhaben.vorgangspositionen).joinedload(Vorgangsposition.ueberweisungen),
-        joinedload(GesetzesVorhaben.verkuendung),
-        joinedload(GesetzesVorhaben.inkrafttreten)
-        ).filter(GesetzesVorhaben.id == id).first()
+    return db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.id == id).order_by(Vorgangsposition.id).first()
 
 def get_law_by_dip_id(id) -> GesetzesVorhaben:
     id = int(id)
@@ -138,10 +131,7 @@ def get_law_by_dip_id(id) -> GesetzesVorhaben:
 
 def get_position_by_dip_id(id) -> Vorgangsposition:
     id = int(id)
-    return db.session.query(Vorgangsposition).options(
-        joinedload(Vorgangsposition.beschluesse), 
-        joinedload(Vorgangsposition.fundstelle), 
-        joinedload(Vorgangsposition.ueberweisungen)).filter(Vorgangsposition.dip_id == id).first()   
+    return db.session.query(Vorgangsposition).filter(Vorgangsposition.dip_id == id).first() 
 
 def get_last_update():
     return db.session.query(AppMetadata).filter_by(key="last_update").one_or_none()
