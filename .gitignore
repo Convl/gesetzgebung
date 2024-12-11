@@ -7,6 +7,9 @@ notizen/
 #WSL virtual environment for running heroku app locally
 .wsl-stuff/ 
 
+#Scripts to start/terminate local ES server
+.elastic-start-local/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
