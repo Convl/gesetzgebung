@@ -134,8 +134,9 @@ def submit():
                 for beschluss in position.beschluesse:
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
-                    # if beschluss.beschlusstenor == "Ablehnung der Vorlage": # is this enough, or do we need to check beschluss.dokumentnummer against fundstellen to see precisely what was denied?
-                    #     info["marks_failure"] = True
+                    # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
+                    if beschluss.beschlusstenor == "Ablehnung der Vorlage": 
+                        info["marks_failure"] = True
 
 
             case "3. Beratung":
@@ -153,8 +154,9 @@ def submit():
                 for beschluss in position.beschluesse:
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
-                    # if beschluss.beschlusstenor == "Ablehnung der Vorlage": # is this enough, or do we need to check beschluss.dokumentnummer against fundstellen to see precisely what was denied?
-                    #     info["marks_failure"] = True
+                    # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
+                    if beschluss.beschlusstenor == "Ablehnung der Vorlage": 
+                        info["marks_failure"] = True
 
             case "1. Durchgang": 
                 text = "Der 1. Durchgang im Bundesrat findet statt."
