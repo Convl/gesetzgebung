@@ -12,14 +12,14 @@
 <body>
     <h1 style="text-align:center">Search for laws</h1>
     <div class="autocomplete-container">
-        <form method="POST" action="/submit">
-            <input type="text" id="autocomplete" name="user_input" placeholder="Search laws..." autocomplete="off" oninput="fetchSuggestions()">
+        <form id="lawForm" method="GET" onsubmit="return handleFormSubmit(event)">
+            <input type="text" id="autocomplete" name="user_input" placeholder="Search laws..." autocomplete="off" oninput="fetchSuggestions()" onkeydown="handleKeydown(event)">
             <input type="hidden" id="id" name="id">
             <div id="suggestions" class="autocomplete-suggestions"></div>
         </form>
     </div>
 
-    <script src="{{ url_for('static', filename='fetchSuggestions.js') }}"> </script>
+    <script src="{{ url_for('static', filename='autoComplete.js') }}"> </script>
     <hr>
     {% block content %}{% endblock %}
 

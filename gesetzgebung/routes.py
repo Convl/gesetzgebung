@@ -12,10 +12,10 @@ import copy
 def index():
     return render_template("index.html")
 
-@app.route('/submit', methods=["POST"])
-def submit():
-    law_id = request.form.get('id')
-    if law_id == "" or not (law := get_law_by_id(law_id)):
+@app.route('/submit/<law_titel>', methods=["GET"])
+def submit(law_titel):
+    law_id = request.args.get('id')
+    if not law_id or not (law := get_law_by_id(law_id)):
         return render_template("error.html")
 
     # ------------------ Phase 0: Gather preliminary information ----------------- #
@@ -131,7 +131,7 @@ def submit():
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
                     # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
-                    if beschluss.beschlusstenor == "Ablehnung der Vorlage": 
+                    if beschluss.beschlusstenor in ["Ablehnung der Vorlage", "Ablehnung der Vorlagen"]: 
                         info["marks_failure"] = True
 
 
@@ -151,7 +151,7 @@ def submit():
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
                     # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
-                    if beschluss.beschlusstenor == "Ablehnung der Vorlage": 
+                    if beschluss.beschlusstenor in ["Ablehnung der Vorlage", "Ablehnung der Vorlagen"]: 
                         info["marks_failure"] = True
 
             case "1. Durchgang": 
