@@ -2,6 +2,7 @@ from gesetzgebung.es_file import es, ES_LAWS_INDEX
 from gesetzgebung.flask_file import app
 from gesetzgebung.models import *
 from gesetzgebung.helpers import *
+from gesetzgebung.daily_update import daily_update
 from flask import render_template, request, jsonify
 import datetime
 import copy
@@ -134,7 +135,6 @@ def submit(law_titel):
                 for beschluss in position.beschluesse:
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
-                    # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
                     if beschluss.beschlusstenor in ["Ablehnung der Vorlage", "Ablehnung der Vorlagen"]: 
                         info["marks_failure"] = True
 
@@ -154,7 +154,6 @@ def submit(law_titel):
                 for beschluss in position.beschluesse:
                     if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
-                    # is this enough to assume failure? WP20 dataset says yes except for dip_id 312281, which contains erroneous data (no decision on 20/11351 was rendered in 3. Beratung, whereas 20/11851 was accepted)
                     if beschluss.beschlusstenor in ["Ablehnung der Vorlage", "Ablehnung der Vorlagen"]: 
                         info["marks_failure"] = True
 

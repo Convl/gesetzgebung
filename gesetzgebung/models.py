@@ -134,7 +134,7 @@ def get_position_by_dip_id(id) -> Vorgangsposition:
     return db.session.query(Vorgangsposition).filter(Vorgangsposition.dip_id == id).first() 
 
 def get_last_update():
-    return db.session.query(AppMetadata).filter_by(key="last_update").one_or_none()
+    return last_update.value if (last_update := db.session.query(AppMetadata).filter_by(key="last_update").one_or_none()) else None
     
 def set_last_update(update):
     if (last_update := db.session.query(AppMetadata).filter_by(key='last_update').one_or_none()):
