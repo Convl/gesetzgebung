@@ -6,7 +6,271 @@ from gesetzgebung.daily_update import daily_update
 from flask import render_template, request, jsonify
 import datetime
 import copy
+import requests
+import re
+import spacy
+import os
+from openai import OpenAI
 
+THE_NEWS_API_KEY = 'lglEeSs4tfC3vW2IgkThxlmBrEk4e8YjZg1MnopQ'
+THE_NEWS_API_TOP_STORIES_ENDPOINT = 'https://api.thenewsapi.com/v1/news/top'
+THE_NEWS_API_ENDPOINT = 'https://api.thenewsapi.com/v1/news/all'
+
+@app.route("/bla")
+def bla():
+    # BING_API_KEY = os.environ.get("BING_API_KEY")
+    # BING_NEWS_API_ENDPOINT = "https://api.bing.microsoft.com/v7.0/news/search"
+    # BING_SEARCH_API_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+    # headers = {'Ocp-Apim-Subscription-Key': BING_API_KEY} # TODO: pass User-Agent
+    # query = "Selbstbestimmungsgesetz"
+    # params = {'q': query, 
+    #           'mkt': 'de-DE', 
+    #           'textDecorations': True, 
+    #           'textFormat': 'HTML',
+    #           'responseFilter': 'News',
+    #           'count': '100',
+    #           }
+    # response = requests.get(BING_NEWS_API_ENDPOINT, headers=headers, params=params)
+    # return response.json()
+    
+    THE_NEWS_API_KEY = os.environ.get("THE_NEWS_API_KEY")
+    THE_NEWS_API_TOP_STORIES_ENDPOINT = 'https://api.thenewsapi.com/v1/news/top'
+    THE_NEWS_API_ENDPOINT = 'https://api.thenewsapi.com/v1/news/all'
+
+    laws = get_all_laws()
+
+    # "Europäischen", "(EU)" -> "EU*"
+    # *gesetzes, *buches, Schutzes, Abkommens, Rechts, *plans, 
+    # endswith "rechtlicher"/"rechtlichen"/"rechtliche" -> der Teil davor als (Teildavor* | teildavor*), ggf noch das 's' weg (versicherungSrechtlicher, auslandSrechtlicher, aber: soldatenrechtlicher)
+    eu_synonyms = {"(EU)": "(EU* | Europäische* Union)",
+                    "Europäische": "(EU* | Europäische* Union)",
+                    "Union": "(EU* | Europäische* Union)",
+                    "Parlament": "(EU* | Europäische* Union)",
+                    "Bundeshaushaltsplan": "(Bundeshaushaltsplan* | Bundeshaushalt* | Haushalt*)",
+                    }
+    add = {"Gesetz*"} # unless Richtlinie / Verordnung / Übereinkommen / Abkommen (all potentially with -s)
+    keep = {"Richtlinie", "Anpassung", "Modernisierung", "Verbesserung", "Stärkung", "Beschleunigung", "Schutz", "Aufhebung", "Verordnung", "Bekämpfung", "2023", "2024", "Förderung", 
+    "Digitalisierung", "Übereinkommen", "Transparenz", "Doppelbesteuerung", "Erhöhung", "Sicherung", "Verhinderung", "Entlastung", "Verlängerung", "Ausbau", "Durchsetzung",
+    "Kindern", "Finanzierung", "Gewalt", "Unternehmen", "Wohnraum", "Übereinkommen", "Steigerung", "Erleichterung", "Verfahren", "Unterbringung", "Nutzung", "Stiftung", "Verfolgung",
+    "Bundestag", "Begrenzung", } # Errichtung? Einkommen, Vermögen, Zusammenarbeit wenn nicht "Doppelbesteuerung"? Personen?
+    synonyms = {"Strafgesetzbuch*": "(Strafgesetzbuch* | StGB)",
+                "Sozialgesetzbuch*": "(Sozialgesetzbuch* | SGB)",
+                "Strafprozessordnung*": "(Strafprozessordnung | StPO)",
+                "EU*": "(EU* | Europäische* Union)",
+                "Union*": "(EU* | Europäische* Union)",
+                "Rat*": "(EU* | Europäische* Rat*)",
+                }
+    # delete = {"Gesetz", "Änderung", "Vorschriften", "Einführung", "Gesetzes", "Umsetzung", "Gesetze", "Europäischen", "(EU)", "Deutschland", "Bundesrepublik",
+    #  "Rates", "Regierung", "Republik", "Regelungen", "§", "Buches", "Vermeidung", "Regelung", 
+    #  "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember", 
+    #  "Erstes", "Zweites", "Drittes", "Viertes", "Fünftes", "Sechstes", "Siebtes", "Achtes", "Neuntes", "Zehntes", "Elftes", "Zwölftes", "Dreizehntes",
+    #  "Vierzehntes", "Fünfzehntes", "Sechszehntes", "Siebzehntes", "Achtzehntes", "Neunzehntes", "Zwangzigstes", "Einunzwandzigstes", "Zweiundzwanzigstes", 
+    #  "Dreiundzwanzigstes", "Vierundzwanzigstes", "Fünfundzwanzigstes", "Sechsundzwanzigstes", "Siebenundzwanzigstes", "Achtundzwanzigstes", "Neunundzwanzigstes", "Dreißigstes", 
+    #  "Protokoll", "Errichtung", "Änderungen", "Steuern", "Gebiet", "Maßnahmen", "Einkommen", "Neuregelung", "Deutschen", "Personen", "Haushaltsjahr", "Mitgliedstaaten", 
+    #  "Bereich", "Vermögen", "Zusammenhang", "Zusammenarbeit", "Jahr", "Rahmenbedingungen", "Weiterentwicklung", "Sicherstellung", "Bestimmungen", "Ausgestaltung", "Artikel", } # Anpassung? Modernisierung? Verbesserung? Stärkung? Jahreszahlen? sonstige Zahlen wie 29.?
+
+    ignore = {"Änderung", "Vorschrift", "Einführung", "Umsetzung", "Deutschland", "Bundesrepublik",
+     "Rat", "Regierung", "Republik", "Regelung", "§", "Buch", "Vermeidung", "Regelung", 
+     "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember", 
+     "Protokoll", "Errichtung", "Steuer", "Gebiet", "Maßnahme", "Einkommen", "Neuregelung", "Person", "Haushaltsjahr", "Mitgliedstaat", 
+     "Bereich", "Vermögen", "Zusammenhang", "Zusammenarbeit", "Jahr", "Rahmenbedingung", "Weiterentwicklung", "Sicherstellung", "Bestimmung", "Ausgestaltung", "Artikel", 
+     "Bezug", } # Anpassung? Modernisierung? Verbesserung? Stärkung? Jahreszahlen? sonstige Zahlen wie 29.?
+
+    results = {"winner by hits": {"abbreviated": 0, "manual": 0, "chatgpt": 0},
+               "winner by relevance": {"abbreviated": 0, "manual": 0, "chatgpt": 0}, 
+               "queries": [],
+               "had abbreviation": 0}
+    nlp = spacy.load("de_core_news_sm") # or de_dep_news_trf
+    client = OpenAI()
+    assistant = client.beta.assistants.retrieve("asst_71hSSTXEzsh5NrZoPcIrxpZw")
+    thread = client.beta.threads.create()
+    counter = 0
+
+    for law in laws:
+        if counter > 250:
+            break
+        counter += 1
+
+        titel : str = law.titel
+        word = ""
+        words = []
+        queries = {}
+
+        daten = [position.datum for position in law.vorgangspositionen if position.gang]
+        daten.sort()
+        start_date = daten[0].strftime("%Y-%m-%d")
+        end_date = datetime.datetime.now().strftime("%Y-%m-%d")
+        
+        # generate query from shorthand if there is one
+        if titel[-1] == ")":
+            abbreviation_start = parentheses_start = max(6, titel.rfind("(")) # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
+            abbreviation_start = parentheses_start + 1
+            while titel[abbreviation_start].isdigit() or titel[abbreviation_start] in {".", " "}: # (2. Betriebsrentenstärkungsgesetz) -> Betriebsrentenstärkungsgesetz
+                abbreviation_start += 1
+            abbreviation_start = max(abbreviation_start, titel.find("- und ", abbreviation_start, len(titel) - 1) + 6) # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
+            abbreviation_end = titel.find(" - ", abbreviation_start, len(titel) - 1) if titel.find(" - ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1
+            queries["abbreviated"] = {"search query": titel[abbreviation_start:abbreviation_end]}
+            titel = titel[:parentheses_start - 1] # remove parentheses after processing them
+            results["had abbreviation"] += 1
+        
+        # generate query manually with spaCy
+        doc = nlp(titel)
+        for token in doc:
+            if token.pos_ in {"NOUN", "PROPN"} and token.lemma_ not in ignore:
+                # "Aufenthalt von Drittstaatsangehörigen" -> "Drittstaatsangehörige*", ABER "Vermeidung von Erzeugungsüberschüssen" -> "Erzeugungsüberschüsse", nicht "Erzeugungsüberschuss"
+                word = f"{token.text[:-1]}*" if "Number=Plur" in token.morph and "Case=Dat" in token.morph and not token.text.startswith(token.lemma_) else f"{token.lemma_}*" 
+            elif (offset := token.lemma_.find("rechtlich")) > 0:
+                if token.lemma_[offset - 1] == 's': # versicherungSrechtlich
+                    offset -= 1
+                word = f"({token.lemma_[0].lower()}{token.lemma_[1:offset]}* | {token.lemma_[0].upper()}{token.lemma_[1:offset]}*)" # (versicherung* | Versicherung*)
+
+            if word:
+                if word in synonyms:
+                    word = synonyms[word]
+
+                if word not in words:
+                    words.append(word)
+        
+        queries["manual"] = {"search query": " ".join(word for word in words)}
+
+        # generate query with ChatGPT
+        system_prompt = """Du bist ein hilfreicher Assistent, dem ich die amtlichen Titel deutscher Gesetze schicken werde. 
+        Diese amtlichen Titel sind oft sehr lang und klingen nach Behördensprache. 
+        In Nachrichtenartikeln über das Gesetz wird deshalb häufig nicht der volle amtliche Titel verwendet, sondern eine kürzere Bezeichnung, die sich aus dem amtlichen Titel ableitet. 
+        Ich möchte mit einer Suchmaschine nach Nachrichtenartikeln über das Gesetz suchen. 
+        Dazu brauche ich einen guten Suchbegriff, der möglichst viele relevante Resultate liefert. 
+        Ich möchte von dir, dass du dir zuerst überlegst, mit welchem Begriff / welchen Begriffen das Gesetz vermutlich in Nachrichtenartikeln bezeichnet wird. 
+        Dann möchte ich, dass du eine Suchanfrage für eine Suchmaschine konstruierst, die möglichst viele solcher Nachrichtenartikel findet, und mir ausschließlich mit einer solchen Suchanfrage antwortest. 
+        Du kannst folgende Operatoren nutzen, um die Suchanfrage zu konstruieren:
+        | (ODER) 
+        + (UND) 
+        - (NICHT) 
+        "" (EXAKTE WORTGRUPPE) 
+        * (WILDCARD, nur am Ende eines Wortes zwecks Prefixsuche zulässig) 
+        () (PRÄZEDENZ, um zu definieren, auf welche Begriffe sich andere logische Operatoren beziehen)
+        Du solltest grundsätzlich an jedes Wort ein * anhängen.
+        Ein Beispiel für eine Suchanfrage zu einem Gesetz mit dem Titel "Gesetz über die Selbstbestimmung in Bezug auf den Geschlechtseintrag und zur Änderung weiterer Vorschriften" wäre: Selbstbestimmungsgesetz* | (Gesetz* + Selbstbestimmung* + Geschlechtseintrag*)"""
+        message = client.beta.threads.messages.create(thread_id=thread.id, role="user", content=titel)
+        run = client.beta.threads.runs.create_and_poll(thread_id=thread.id, assistant_id=assistant.id)
+        assistant = assistant or client.beta.assistants.create(name="Suchanfrage_aus_Gesetzestitel", instructions=system_prompt, model="gpt-4o")
+        
+        try:
+            if run.status == "completed":
+                messages = client.beta.threads.messages.list(thread_id=thread.id)
+                queries["chatgpt"] = {"search query": messages.data[0].content[0].text.value}
+                
+                for message in messages.data:
+                    client.beta.threads.messages.delete(message_id=message.id, thread_id=thread.id)
+        except Exception as e:
+            print(e)
+
+        # run news search on all queries
+        params = {'api_token': THE_NEWS_API_KEY,
+        'search': "",
+        'language': 'de',
+        'published_after': start_date,
+        'published_before': end_date,
+        'page': 1
+        }
+        
+        for method in queries:
+            params["search"] = queries[method]["search query"]
+            response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
+            hits = response.json()["meta"]["found"]
+            queries[method]["hits"] = hits
+            if hits > 0:
+                queries[method]["title"] = response.json()["data"][0]["title"]
+                queries[method]["description"] = response.json()["data"][0]["description"]
+                queries[method]["url"] = response.json()["data"][0]["url"]
+                queries[method]["relevance"] = response.json()["data"][0]["relevance_score"]
+        
+        try:
+            winner_by_hits = max(queries, key=lambda method: queries[method].get("hits", 0))
+            winner_by_relevance = max(queries, key=lambda method: queries[method].get("relevance", 0))
+            results["winner by hits"][winner_by_hits] += 1
+            results["winner by relevance"][winner_by_relevance] += 1
+            results["queries"].append({"Titel": titel, "Querries": queries})
+        except Exception as e:
+            print(e)
+        #print(f"Titel: {law.titel}\nAbbreviated: {queries['abbreviated']}\nManual: {queries['manual']}\nChatGPT: {queries['chatgpt']}\n\n")
+
+        # search_terms = [token.lemma_ for token in doc if token.pos_ in {"NOUN", "PROPN"}]
+        # print(f"Law.titel: {law.titel}\nSearch terms: {search_terms}")
+    return results
+
+        # if "Gesetz " not in law.titel:
+        #     end = law.titel.find("gesetz") + 6
+        #     start = max(0, law.titel.find(" ", 0, end))
+        #     query = law.titel[:law.titel.find("gesetz") + 6]
+        # else:
+        #     words : str = law.titel.split()
+        #     for word in words:
+        #         if word[0].islower() or word in ignore:
+        #             continue
+
+        #         all_words[word] = all_words.get(word, 0) + 1
+
+    all_words = dict(sorted(all_words.items(), key = lambda item:item[1], reverse=True))
+    all_words_list = []
+
+    for word in all_words:
+        all_words_list.append({word: all_words[word]})
+        # print(f"Word: {word}, count: {all_words[word]}")
+
+    return all_words_list
+
+
+    for law in laws:
+        if i > 50:
+            break
+
+        daten = [position.datum for position in law.vorgangspositionen]
+        daten.sort()
+        start_date = daten[0].strftime("%Y-%m-%d")
+        end_date = daten[-1].strftime("%Y-%m-%d")
+    
+        query = law.titel.replace(" ", " + ")
+        params = {'api_token': THE_NEWS_API_KEY,
+                'search': query,
+                'language': 'de',
+                'published_after': start_date,
+                'published_before': end_date,
+                'page': 1
+                }
+        response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
+        full_title_hits = response.json()["meta"]["found"]
+
+        words : str = law.titel.split()
+        query = " ".join(word.replace("(", "").replace(")", "") for word in words if word[0].isupper())
+        params["search"] = query
+        response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
+        substantive_title_hits = response.json()["meta"]["found"]
+
+        start = law.titel.find("(")
+        end = law.titel.find(")")
+        if start != -1 and end != -1:
+            bracketed = law.titel[start+1:end].split()
+            query = max(bracketed, key=len)
+            params["search"] = query
+            response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
+            abbreviation_hits = response.json()["meta"]["found"]
+            abbreviation_existed += 1
+        else:
+            abbreviation_hits = 0
+    
+        if full_title_hits > substantive_title_hits and full_title_hits > abbreviation_hits:
+            full_title_best += 1
+        elif substantive_title_hits > full_title_hits and substantive_title_hits > abbreviation_hits:
+            substantive_title_best += 1
+        elif abbreviation_hits > full_title_hits and abbreviation_hits > substantive_title_hits:
+            abbreviation_best += 1
+
+        i += 1
+        print(f"Law: {law.titel}\nFull title hits: {full_title_hits}\nSubstantive hits: {substantive_title_hits}\nAbbreviation hits: {abbreviation_hits}")
+    
+    print(f"Full title best: {full_title_best}\nSubstantive best: {substantive_title_best}\nAbbreviation best: {abbreviation_best} / {abbreviation_existed}")
+
+    return response.json()
 
 @app.route('/', methods=["GET", "POST"])
 @app.route('/index')
@@ -296,6 +560,18 @@ def submit(law_titel):
 
         info["text"] = text
         infos.append(info)
+
+        # query = 'Selbstbestimmungsgesetz'
+        # params = {'api_token': THE_NEWS_API_KEY,
+        #       'search': query,
+        #       'language': 'de',
+        #       'published_after': '2024-01-01',
+        #       'published_before': '2025-01-01',
+        #       'page': 1
+        #       }
+        # response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
+
+
 
     # -------------------- Phase 2: Check how far we have come ------------------- #
     # ------------------- add what remains to be done to infos ------------------- #
