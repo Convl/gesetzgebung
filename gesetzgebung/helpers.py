@@ -10,6 +10,7 @@ genera = {"BR": "m",
           "BRg": "w",
           "Bundestag": "m",
           "Bundesrat": "m",
+          "Auswärtiger": "m",
           "Ausschuss": "m",
           "Fraktion": "w",
           "Bundesregierung": "w",
@@ -121,7 +122,7 @@ def parse_actors(actors, kasus, capitalize=False, iterable=False):
         if first_word.endswith("ausschuss"):
             first_word = "Ausschuss"
 
-        praeposition = kasus[genera[first_word]]
+        praeposition = kasus.get(genera.get(first_word, ""), "")
 
         if kasus == praepositionen_genitiv:
             if first_word in bundeslaender: # "des LANDES Bayern"
