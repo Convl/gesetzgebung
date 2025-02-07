@@ -14,6 +14,8 @@ import os
 import json
 from openai import OpenAI
 import newspaper
+from gnews import GNews
+from googlenewsdecoder import gnewsdecoder
 
 THE_NEWS_API_KEY = 'lglEeSs4tfC3vW2IgkThxlmBrEk4e8YjZg1MnopQ'
 THE_NEWS_API_TOP_STORIES_ENDPOINT = 'https://api.thenewsapi.com/v1/news/top'
@@ -89,10 +91,14 @@ def bla(law=None, infos=None):
     DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
     ARTICLES_PER_REQUEST = 25
     IDEAL_SUMMARIES_COUNT = 10
-    MAX_OVERALL_SUMMARY_LENGTH = 800
+    MAX_OVERALL_SUMMARY_LENGTH = 1000
     MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
     MAX_FALSE_HITS = 6
     RELEVANCE_CUTOFF = 10
+    AI_TO_USE = "OpenAI"
+    AI_API_KEY = os.environ.get("OPENAI_API_KEY") if AI_TO_USE == "OpenAI" else os.environ.get("DEEPSEEK_API_KEY") if AI_TO_USE == "DeepSeek" else None
+    AI_GENERAL_PURPOSE_MODEL = "gpt-4o" if AI_TO_USE == "OpenAI" else "deepseek-chat" if AI_TO_USE == "DeepSeek" else None
+    AI_REASONING_MODEL = "o1" if AI_TO_USE == "OpenAI" else "deepseek-reasoner" if AI_TO_USE == "DeepSeek" else None 
 
     system_prompt = """Du bist ein hilfreicher Assistent, der mir helfen soll, Suchbegriffe aus den amtlichen Titeln deutscher Gesetze zu generieren, und aus einer Reihe von Suchergebnissen eine Auswahl zu treffen und eine Zusammenfassung zu erstellen. 
     Meine Nachricht an dich beginnt entweder mit den Worten "SUCHANFRAGE GENERIEREN" (gefolgt vom Titel eines deutschen Gesetzes) oder "ZUSAMMENFASSUNG GENERIEREN" (gefolgt vom Titel eines Gesetzes und einer Reihe von Suchergebnissen). 
@@ -109,22 +115,19 @@ def bla(law=None, infos=None):
     
     # nlp = spacy.load("de_core_news_sm") # or de_dep_news_trf
     
-    client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url="https://api.deepseek.com")
+    # client = OpenAI(api_key=DEEPSEEK_API_KEY,base_url="https://api.deepseek.com")
+    client = OpenAI(api_key=AI_API_KEY)
+    gn = GNews(language='de', country='DE')
     # assistant = client.beta.assistants.retrieve("asst_qEHStCSjEx5Gya8xVGXbTYLO") or client.beta.assistants.create(name="Assistent_Nachrichtensuche", instructions=system_prompt, model="gpt-4o", temperature=0.5)
     # thread = client.beta.threads.create()
 
     titel : str = law.titel if law.titel else "Nicht vorhanden"
-    results = {"titel": titel, "news": []}
-    dates = [position.datum for position in law.vorgangspositionen if position.gang]
-    dates.sort()
-    dates[0] -= datetime.timedelta(days=1) # shift first date back by one day
-    dates_shifted = dates[1:] + [datetime.datetime.now()] # shift dates by one to get the end date for each period
     titel, abbreviation = extract_abbreviation(titel) if titel.endswith(")") else (titel, "")
-    query = ""
+    queries = []
 
     generate_title_message = [
         {
-            "content": "Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes. Dieser ist oft sperrig und klingt nach Behördensprache. Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. Generiere dann Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz. Im Normalfall sollst du drei Suchanfragen generieren, du kannst aber auch nur eine oder zwei generieren, falls dir keine weiteren sinnvollen Suchanfragen einfallen. Setze jede der Suchanfragen in Klammern, und verbinde die einzelne Suchanfragen durch ein ' | ' miteinander. Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird. Bedenke, dass die Begriffe innerhalb der einzelnen Suchanfragen mit UND verknüpft sind, die Suchanfragen selbst jedoch mit ODER verknüpft sind. Nutze also synonyme Begriffe wie 'Reform' oder 'Novelle' nicht innerhalb derselben Suchanfrage, sondern verteile sie über die Suchanfragen, um Nachrichtenartikel zu finden, die den einen oder den anderen Begriff verwenden. Achte darauf, die Suchanfragen restriktiv genug zu machen, damit möglichst wenige Nachrichtenartikel gefunden werden, die nichts mit dem Gesetz zu tun haben. Achte aber umgekehrt auch darauf, die Suchanfragen nicht so restriktiv zu machen, dass Nachrichtenartikel nicht gefunden werden, die sehr wohl etwas mit dem Gesetz zu tun haben. Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. Antworte AUSSCHLIEßLICH mit den Suchanfragen.",
+            "content": "Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes. Dieser ist oft sperrig und klingt nach Behördensprache. Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. Generiere dann Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz. Im Normalfall sollst du drei Suchanfragen generieren, du kannst aber auch nur eine oder zwei generieren, falls dir keine weiteren sinnvollen Suchanfragen einfallen. Jede Suchanfrage sollte aus einem oder mehreren Worten bestehen, die durch Leerzeichen getrennt sind. Die einzelnen Suchanfragen sollten durch ein ' | 'von einander getrennt sein. Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird. Bedenke, dass die Begriffe innerhalb der einzelnen Suchanfragen automatisch mit UND verknüpft sind, die Suchanfragen selbst jedoch mit ODER verknüpft sind. Nutze also synonyme Begriffe wie 'Reform' oder 'Novelle' nicht innerhalb derselben Suchanfrage, sondern verteile sie über die Suchanfragen, um Nachrichtenartikel zu finden, die den einen oder den anderen Begriff verwenden. Achte darauf, die Suchanfragen restriktiv genug zu machen, damit möglichst wenige Nachrichtenartikel gefunden werden, die nichts mit dem Gesetz zu tun haben. Achte aber umgekehrt auch darauf, die Suchanfragen nicht so restriktiv zu machen, dass Nachrichtenartikel nicht gefunden werden, die sehr wohl etwas mit dem Gesetz zu tun haben. Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. Antworte AUSSCHLIEßLICH mit den Suchanfragen.",
             "role": "system"
         },
         {
@@ -132,9 +135,20 @@ def bla(law=None, infos=None):
             "role": "user"
         }
     ]
-    response = client.chat.completions.create(model='deepseek-reasoner', messages=generate_title_message, temperature=0.7, stream=False)
-    query = response.choices[0].message.content
-    query = f"{query} | ({abbreviation})" if abbreviation and f"({abbreviation})" not in query else query
+    try:
+        response = client.chat.completions.create(model=AI_REASONING_MODEL, messages=generate_title_message, temperature=0.7, stream=False)
+        queries = [query for query in response.choices[0].message.content.split(" | ") if query]
+    except Exception as e:
+        try:
+            print(f"Error generating search query with reasoning model, trying general purpose model. Error: {e}")
+            response = client.chat.completions.create(model=AI_GENERAL_PURPOSE_MODEL, messages=generate_title_message, temperature=0.7, stream=False)
+            queries = [query for query in response.choices[0].message.content.split(" | ") if query]
+        except Exception as e2:
+            print(f"Error generating search query with general purpose model. Error: {e}")
+            return infos        
+    
+    if abbreviation and abbreviation not in queries:
+        queries.insert(0, abbreviation)
 
     # try:
     #     message = client.beta.threads.messages.create(thread_id=thread.id, role="user", content=f"SUCHANFRAGE GENERIEREN\nGesetzestitel: {titel}")
@@ -151,17 +165,14 @@ def bla(law=None, infos=None):
     # except Exception as e:
     #     print(e)
 
-    results["query"] = query
-    params = {'api_token': THE_NEWS_API_KEY,     
-        'search': query,
-        'language': 'de',
-        'page': 1,
-        'limit': ARTICLES_PER_REQUEST,
-        "published_after": dates[0].strftime("%Y-%m-%d"),
-        "published_before": datetime.datetime.now().strftime("%Y-%m-%d")}
-        
-    response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
-    total_hits = int(response.json()["meta"]["found"])
+    # params = {'api_token': THE_NEWS_API_KEY,     
+    #     'search': query,
+    #     'language': 'de',
+    #     'page': 1,
+    #     'limit': ARTICLES_PER_REQUEST,
+    #     "published_after": dates[0].strftime("%Y-%m-%d"),
+    #     "published_before": datetime.datetime.now().strftime("%Y-%m-%d")}
+    
 
     # indices = []
     
@@ -186,36 +197,49 @@ def bla(law=None, infos=None):
         # start_date = start_date.strftime("%Y-%m-%d")
         # end_date = (end_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
 
-        params["published_after"] = start_date.strftime("%Y-%m-%d") if i > 0 else (start_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-        params["published_before"] = (end_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d") 
+        # params["published_after"] = start_date.strftime("%Y-%m-%d") if i > 0 else (start_date - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        # params["published_before"] = (end_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d") 
+
+        gn.start_date = (start_date.year, start_date.month, start_date.day)
+        gn.end_date = (end_date.year, end_date.month, end_date.day)
         articles = []
-        page = 1
-        false_hits = 0 
-        current_hits = float('inf')
 
-        while len(articles) < IDEAL_SUMMARIES_COUNT and (page-1) * ARTICLES_PER_REQUEST < current_hits and false_hits < MAX_FALSE_HITS:
-            params["page"] = page
-            newsapi_response = requests.get(THE_NEWS_API_ENDPOINT, params=params)
-            if (current_hits := int(newsapi_response.json()["meta"]["found"])) < total_hits / RELEVANCE_CUTOFF:
+        for query in queries:
+            if len(articles) >= IDEAL_SUMMARIES_COUNT:
                 break
+            false_hits = 0 
+            gnews_response = gn.get_news(query)
 
-            for article in newsapi_response.json()["data"]:
-                if len(articles) == IDEAL_SUMMARIES_COUNT:
+            for article in gnews_response:
+                if len(articles) >= IDEAL_SUMMARIES_COUNT or false_hits >= MAX_FALSE_HITS:
                     break
                 
                 try:
-                    news_article = newspaper.article(article["url"], language='de')
+                    url = gnewsdecoder(article["url"], 3)
+                    if url["status"]:
+                        article["url"] = url["decoded_url"]
+                    else:
+                        raise Exception("could not decode article url")
                 except Exception as e:
-                    print(e)
+                    print(f"Error decoding URL of {article}")
+                    continue
+
+                try:
+                    news_article = newspaper.article(article["url"], language='de')
+                    news_article.download()
+                    news_article.parse()
+                except Exception as e:
+                    print(f"Error parsing news article: {e}")
                     continue
 
                 if not news_article.is_valid_body():
+                    print("invalid article body")
                     continue
 
                 full_text = news_article.text
                 generate_article_summary_message = [
                     {
-                        "content": "Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes und einen Nachrichtenartikel. Falls der Nachrichtenartikel nichts mit dem Gesetz zu tun hat, antworte ausschließlich mit dem Wort False. Andernfalls, antworte ausschließlich mit einer Zusammenfassung der wichtigsten Aussagen des Nachrichtenartikels, die maximal 1000 Zeichen lang sein darf.",
+                        "content": "Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes und einen Nachrichtenartikel. Falls der Nachrichtenartikel nichts mit dem Gesetz zu tun hat, antworte ausschließlich mit dem Wort False. Andernfalls, antworte ausschließlich mit einer Zusammenfassung der wichtigsten Aussagen des Nachrichtenartikels, die maximal 1500 Zeichen lang sein darf.",
                         "role": "system"
                     },
                     {
@@ -223,31 +247,39 @@ def bla(law=None, infos=None):
                         "role": "user"
                     }
                 ]
-                ai_response = client.chat.completions.create(model='deepseek-chat', messages=generate_article_summary_message, temperature=0.7, stream=False)
-                summary = ai_response.choices[0].message.content
+                try:
+                    ai_response = client.chat.completions.create(model=AI_GENERAL_PURPOSE_MODEL, messages=generate_article_summary_message, temperature=0.7, stream=False)
+                    summary = ai_response.choices[0].message.content
+                except Exception as e:
+                    print(f"Error generating article summary: {e}")
+                    continue
+
                 if summary == "False":
                     false_hits += 1
                     continue
 
                 article["summary"] = summary
                 articles.append(article)
-            
-            page += 1
         
         if len(articles) > MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
-            stripped_down_articles = json.dumps([{"Überschrift": article["summary"], "Zusammenfassung": article["summary"], "Quelle": article["source"]} for article in articles], ensure_ascii=False)
+            stripped_down_articles = json.dumps([{"Überschrift": article["title"], "Zusammenfassung": article["summary"], "Quelle": article["publisher"]} for article in articles], ensure_ascii=False)
+            summary_message = f"Die folgenden Nachrichtenartikel sind innerhalb eines bestimmten Zeitraums während des Gesetzgebungsverfahrens erschienen. Am Anfang dieses Zeitraums steht folgendes Ereignis: {infos[i]['text'][:infos[i]['text'].find('.')]}."
+            summary_message += "Dieses Ereignis markiert zugleich den bislang letzten Schritt im Gesetzgebungsverfahren. Der Zeitraum, aus dem die folgenden Nachrichtenartikel stammen, reicht somit bis zum heutigen Tag.\n\n" if i == len(infos) - 1 or infos[i + 1].get("datum", None) is None else f" Am Ende dieses Zeitraums steht folgendes Ereignis: {infos[i+1]['text'][:infos[i+1]['text'].find('.')]}.\n\n"
             generate_overall_summary_message = [
                 {
-                    "content": f"Du erhältst vom Nutzer eine Liste strukturierter Daten. Jeder Eintrag in der Liste repräsentiert einen Artikel über ein deutsches Gesetz mit dem amtlichen Titel {law.titel}. Jeder Eintrag in der Liste hat die Felder Überschrift, Zusammenfassung, und Quelle. Identifiziere anhand der Titel und Zusammenfassungen die wesentlichen Themen der Nachrichtenartikel, und erstelle dann auf maximal {MAX_OVERALL_SUMMARY_LENGTH} Zeichen eine Zusammenfassung der Berichterstattung über das Gesetz. Antworte ausschließlich mit dieser Zusammenfassung.",
+                    "content": f"Du erhältst vom Nutzer eine Liste strukturierter Daten. Die Liste besteht aus Nachrichtenartikeln über ein deutsches Gesetz mit dem amtlichen Titel {law.titel}, wobei für jeden Artikel die Felder Überschrift, Zusammenfassung und Quelle angegeben sind. Alle Nachrichtenartikel in der Liste sind innerhalb eines bestimmten Zeitraums während des Gesetzgebungsverfahrens erschienen, z.B. nach der 1. und vor der 2. Lesung im Bundestag. Der Nutzer wird dir mitteilen, aus welchem Zeitraum die Artikel stammen. Identifiziere anhand der Titel und Zusammenfassungen die wesentlichen Themen der Nachrichtenartikel, und erstelle dann auf maximal {MAX_OVERALL_SUMMARY_LENGTH} Zeichen eine Zusammenfassung der Berichterstattung über das Gesetz während dieses Zeitraums. Interessante Aspekte, die du in die Zusammenfassung aufnehmen solltest, sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese solltest du in deine Zusammenfassung nur aufnehmen, wenn sich aus den Artikeln nichts anderes interessantes ergibt.",
                     "role": "system"
                 },
                 {
-                    "content": stripped_down_articles,
+                    "content": summary_message + stripped_down_articles,
                     "role": "user"
                 }
             ]
-            response = client.chat.completions.create(model='deepseek-chat', messages=generate_overall_summary_message, temperature=0.7, stream=False)
-            summary = response.choices[0].message.content
+            try:
+                response = client.chat.completions.create(model=AI_GENERAL_PURPOSE_MODEL, messages=generate_overall_summary_message, temperature=0.7, stream=False)
+                summary = response.choices[0].message.content
+            except Exception as e:
+                print(f"Error generating final summary: {e}")
 
             info = {"datum": start_date.strftime("%d. %B %Y"), 
                     "vorgangsposition": "Nachrichtenartikel",
