@@ -6,6 +6,7 @@ import os
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
+from gesetzgebung.routes import submit
 # from elasticsearch.exceptions import NotFoundError
 from elasticsearch7.exceptions import NotFoundError
 
@@ -84,6 +85,8 @@ def daily_update():
 
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
+        # TODO: define cases when add_news should be called, other than when a new position is added
+
 def update_inkrafttreten(inkrafttreten, law):
     existing_inkrafttreten = db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
     for inkraft in existing_inkrafttreten:
@@ -119,7 +122,8 @@ def update_positionen(dip_id, law):
     response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
     while response.ok and cursor != response.json().get("cursor", None):
         for item in response.json().get("documents", []):
-            position = get_position_by_dip_id(item.get("id", None)) or Vorgangsposition()
+            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None
+            position = position or Vorgangsposition()
             if not position.aktualisiert or position.aktualisiert != item.get("aktualisiert", None): # may wanna check item.get("gang", False) here
                 position.dip_id = item.get("id", None)
                 position.vorgangsposition = item.get("vorgangsposition", None)
@@ -146,6 +150,9 @@ def update_positionen(dip_id, law):
 
                 beschlussfassungen = item.get("beschlussfassung", [])
                 update_beschluesse(position, beschlussfassungen)
+
+                if new_position:
+                    add_news(position)
         
         time.sleep(1)
         params["cursor"] = cursor = response.json().get("cursor", None)
@@ -206,6 +213,9 @@ def update_ueberweisungen(position, ueberweisungen):
 
         ueberweisung.position = position
         db.session.add(ueberweisung)
+
+def add_news(position):
+    pass
 
 def update_law_in_es(law):
     try:

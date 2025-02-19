@@ -3,38 +3,18 @@ from gesetzgebung.es_file import es, ES_LAWS_INDEX
 from gesetzgebung.flask_file import app
 # from gesetzgebung.models import * # TODO: just in case of issues: this used to be here and not in config.py, but db.create_all() needs models 
 from gesetzgebung.helpers import *
-from gesetzgebung.daily_update import daily_update
+# from gesetzgebung.daily_update import daily_update # TODO: no idea what that was doing here
 from flask import render_template, request, jsonify
 import datetime
 import copy
-import requests
 import re
-import spacy
 import os
 import json
-from openai import OpenAI, AzureOpenAI
+from openai import OpenAI
 import newspaper
 from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
-from pydantic import BaseModel, Field
-from azure.ai.inference import ChatCompletionsClient
-from azure.core.credentials import AzureKeyCredential
-from azure.ai.inference.models import SystemMessage, UserMessage, JsonSchemaFormat
 import re
-import getpass
-from langchain.chat_models import init_chat_model
-from langchain_core.output_parsers import JsonOutputParser
-from langsmith.wrappers import wrap_openai
-from langchain_openai import AzureChatOpenAI
-from bs4 import BeautifulSoup
-from langchain_fireworks import ChatFireworks
-from langchain_azure_ai.chat_models import AzureAIChatCompletionsModel
-from pydantic.json_schema import GenerateJsonSchema
-# from langchain_core.messages import SystemMessage, HumanMessage
-
-THE_NEWS_API_KEY = 'lglEeSs4tfC3vW2IgkThxlmBrEk4e8YjZg1MnopQ'
-THE_NEWS_API_TOP_STORIES_ENDPOINT = 'https://api.thenewsapi.com/v1/news/top'
-THE_NEWS_API_ENDPOINT = 'https://api.thenewsapi.com/v1/news/all'
 
 def extract_abbreviation(titel):
     # Extract the shorthand (not the abbreviation) from the title of a law, if there is one
@@ -150,32 +130,32 @@ def get_text_data_from_ai(client, messages):
     
 @app.route("/bla")
 def bla(law=None, infos=None):
-    SUMMARY_LENGTH = 800
+    SUMMARY_LENGTH = 700
     IDEAL_ARTICLE_COUNT = 5
     MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
-    MINIMUM_ARTICLE_LENGTH = 2000
+    MINIMUM_ARTICLE_LENGTH = 3500
     MAXIMUM_ARTICLE_LENGTH = 20000
     AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
     AI_ENDPOINT = "https://openrouter.ai/api/v1"
 
-    class Zeitraum(BaseModel):
-        zusammenfassung: str = Field(strict=True, description="Die von dir erstellte Zusammenfassung.")
+    # class Zeitraum(BaseModel):
+    #     zusammenfassung: str = Field(strict=True, description="Die von dir erstellte Zusammenfassung.")
 
-    class Zeitraeume(BaseModel):
-        zeitraeume: list[Zeitraum] = Field(strict=True, description="Die Liste der von dir erstellten Zusammenfassungen.")
+    # class Zeitraeume(BaseModel):
+    #     zeitraeume: list[Zeitraum] = Field(strict=True, description="Die Liste der von dir erstellten Zusammenfassungen.")
 
-    class Suchergebnis(BaseModel):
-        index: int = Field(strict=True, description="Der Index des Nachrichtenartikels in der Liste der Nachrichtenartikel, die du erhalten hast.")
-        passend: int = Field(strict=True, description="Eine 1, wenn der Nachrichtenartikel sich auf das im system prompt erwähnte Gesetz bezieht, und eine 0, wenn nicht.")
+    # class Suchergebnis(BaseModel):
+    #     index: int = Field(strict=True, description="Der Index des Nachrichtenartikels in der Liste der Nachrichtenartikel, die du erhalten hast.")
+    #     passend: int = Field(strict=True, description="Eine 1, wenn der Nachrichtenartikel sich auf das im system prompt erwähnte Gesetz bezieht, und eine 0, wenn nicht.")
     
-    class Suchergebnisse(BaseModel):
-        suchergebnisse: list[Suchergebnis] = Field(strict=True, description="Die Liste der von dir als passend oder unpassend bewerteten Suchergebnisse.")
+    # class Suchergebnisse(BaseModel):
+    #     suchergebnisse: list[Suchergebnis] = Field(strict=True, description="Die Liste der von dir als passend oder unpassend bewerteten Suchergebnisse.")
 
-    class Suchanfrage(BaseModel):
-        suchanfrage: str = Field(strict=True, description="Eine der von dir generierten Suchanfragen.") 
+    # class Suchanfrage(BaseModel):
+    #     suchanfrage: str = Field(strict=True, description="Eine der von dir generierten Suchanfragen.") 
 
-    class Suchanfragen(BaseModel):
-        suchanfragen: list[Suchanfrage] = Field(strict=True, description="Die Liste der 3 von dir erstellten Suchanfragen.")
+    # class Suchanfragen(BaseModel):
+    #     suchanfragen: list[Suchanfrage] = Field(strict=True, description="Die Liste der 3 von dir erstellten Suchanfragen.")
 
     
     client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
@@ -264,7 +244,7 @@ def bla(law=None, infos=None):
                 if not (gnews_response := gn.get_news(query)):
                     raise Exception("did not get a response from gnews")
             except Exception as e:
-                print(f"Error fetching news from gnews for query: {query}\nError: {e}")
+                print(f"Error fetching news from gnews for query: {query}\nError: {e}\start date: {gn.start_date}\nend date: {gn.end_date}")
                 continue
 
             try:
@@ -352,6 +332,7 @@ def bla(law=None, infos=None):
                 
                 # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
                 if not news_article.publish_date or news_article.publish_date.replace(tzinfo=None) >= end_date:
+                    print(f"News article {news_article} ignored due to invalid publish date")
                     continue
 
                 news_info["artikel"].append(news_article.text)
