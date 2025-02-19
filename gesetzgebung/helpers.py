@@ -1,5 +1,7 @@
 from gesetzgebung.models import *
 import copy
+import re
+from urllib.parse import quote
 
 bundeslaender = {"Bayern", "Niedersachsen", "Baden-Württemberg", "Nordrhein-Westfalen", "Brandenburg", "Mecklenburg-Vorpommern", 
                  "Hessen", "Sachsen-Anhalt", "Rheinland-Pfalz", "Sachsen", "Thüringen", "Schleswig-Holstein",
@@ -266,6 +268,13 @@ def merge_beschluesse(beschluesse : List[Beschlussfassung], zweite_und_dritte_be
 
     return merged_beschluesse  
 
-# def analyze_beschluesse(beschluesse : List[Beschlussfassung], actor) -> bool:
-#     for beschluss in beschluesse:
-#         if beschluss.beschlusstenor
+def create_link(position):
+    text = position.abstract
+    dokumentnummern = re.findall(r"Drs (\d{2}/\d{1,4})", position.abstract)
+    for dokumentnummer in dokumentnummern:
+        first_position_subquery = db.session.query(Vorgangsposition.vorgangs_id, func.min(Vorgangsposition.id).label('first_pos_id')).group_by(Vorgangsposition.vorgangs_id).subquery()
+        results = db.session.query(GesetzesVorhaben).join(first_position_subquery, GesetzesVorhaben.id == first_position_subquery.c.vorgangs_id).join(Vorgangsposition, Vorgangsposition.id == first_position_subquery.c.first_pos_id).join(Fundstelle).filter(Fundstelle.dokumentnummer == dokumentnummer).all()                                           
+        if results:
+            encoded_titel = quote(re.sub(r'\s+', '-', results[0].titel).lower())
+            text = text.replace(dokumentnummer, f'<a href="/submit/{encoded_titel}?id={results[0].id}">{dokumentnummer}</a>')
+    return text

@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from gesetzgebung.flask_file import app
 from gesetzgebung.database import db
 from gesetzgebung.es_file import *
+from gesetzgebung.models import *
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))

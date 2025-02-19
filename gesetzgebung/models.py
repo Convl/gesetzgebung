@@ -47,6 +47,27 @@ class Ueberweisung(db.Model):
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
     position = db.relationship('Vorgangsposition', back_populates='ueberweisungen', lazy=False)
 
+class NewsArticle(db.Model):
+    __tablename__ = 'articles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.Text, nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    published_date = db.Column(db.Text, nullable=True)
+    url = db.Column(db.Text, nullable=True)
+    publisher = db.Column(db.Text, nullable=True) # in ["publisher"]["title"]
+    summary_id = db.Column(db.Integer, db.ForeignKey('summaries.id'), nullable=False)
+    summary = db.relationship('NewsSummary', back_populates='articles', lazy=False)
+
+class NewsSummary(db.Model):
+    __tablename__ = 'summaries'
+
+    id = db.Column(db.Integer, primary_key=True)
+    summary = db.Column(db.Text, nullable=True) 
+    articles : ClassVar[List[NewsArticle]] = db.relationship('NewsArticle', back_populates='summary', lazy=False)
+    positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
+    position = db.relationship('Vorgangsposition', back_populates='summary', lazy=False)
+
 class Vorgangsposition(db.Model):
     __tablename__ = 'positionen'
 
@@ -66,6 +87,7 @@ class Vorgangsposition(db.Model):
     ueberweisungen : ClassVar[List[Ueberweisung]] = db.relationship('Ueberweisung', back_populates='position', lazy=False)
     fundstelle : ClassVar[Fundstelle] = db.relationship('Fundstelle', back_populates='position', lazy=False, uselist=False)
     beschluesse : ClassVar[List[Beschlussfassung]] = db.relationship('Beschlussfassung', back_populates='position', lazy=False)
+    summary : ClassVar[Fundstelle] = db.relationship('NewsSummary', back_populates='position', lazy=False, uselist=False)
     
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
     gesetz = db.relationship('GesetzesVorhaben', back_populates='vorgangspositionen', lazy=False)
