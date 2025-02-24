@@ -6,9 +6,17 @@ import os
 from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
-from gesetzgebung.routes import submit
+from gesetzgebung.routes import parse_law
 # from elasticsearch.exceptions import NotFoundError
 from elasticsearch7.exceptions import NotFoundError
+
+import json
+from openai import OpenAI
+import newspaper
+from gnews import GNews
+from googlenewsdecoder import gnewsdecoder
+import re
+from itertools import groupby
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -21,10 +29,20 @@ DIP_ENDPOINT_VORGANGSPOSITION = "https://search.dip.bundestag.de/api/v1/vorgangs
 FIRST_DATE_TO_CHECK = "2021-10-26"
 LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
+SUMMARY_LENGTH = 700
+IDEAL_ARTICLE_COUNT = 5
+MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
+MINIMUM_ARTICLE_LENGTH = 3500
+MAXIMUM_ARTICLE_LENGTH = 20000
+AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+AI_ENDPOINT = "https://openrouter.ai/api/v1"
+NEWS_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=3), datetime.timedelta(days=30), datetime.timedelta(days=90), datetime.timedelta(days=180)]
+QUERY_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=30), datetime.timedelta(days=180), datetime.timedelta(days=360)]
 headers = {"Authorization": "ApiKey " + DIP_API_KEY}
 
 def daily_update(): 
     with app.app_context():
+        # ----------- Phase I: Enter new information from DIP into database ---------- #
         params =    {"f.vorgangstyp": "Gesetzgebung",
                      "f.datum.start": FIRST_DATE_TO_CHECK,
                      "f.aktualisiert.start": last_update
@@ -36,6 +54,14 @@ def daily_update():
                     }
 
         cursor = ""
+
+        # TODO: Just for testing, remove next 4 lines later
+        params["f.aktualisiert.start"] = "2025-02-13T13:04:08"
+        blub = db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.titel == "Gesetz zur Anpassung des Mutterschutzgesetzes und weiterer Gesetze - Anspruch auf Mutterschutzfristen nach einer Fehlgeburt (Mutterschutzanpassungsgesetz)").first()
+        if blub:
+            db.session.delete(blub)
+            db.session.commit()
+        
         response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
         
         print("Starting daily update")
@@ -57,6 +83,7 @@ def daily_update():
                 law.aktualisiert = item.get("aktualisiert", None)
                 law.titel = item.get("titel", None)
                 law.datum = item.get("datum", None)
+                
 
                 update_positionen(item.get("id", None), law)
 
@@ -85,7 +112,118 @@ def daily_update():
 
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
-        # TODO: define cases when add_news should be called, other than when a new position is added
+        # --------- Phase 2: Update news articles / summaries where necessary -------- #
+        """This whole process is a bit convoluted. Essentially, the idea is:
+        - Check all NewsUpdateCandidates (i.e. Vorgangspositionen that haven't had a news summary added in a while, or at all)
+        - If a NewsUpdateCandidate is new, it receives its first update, any older NewsUpdateCandidates belonging to the same law receive their final update and are removed from the list
+        - If no new NewsUpdateCandidates were added for a given law, existing ones get updated periodically in increasing intervals
+        - Updating means that news articles for the relevant timeframe will be searched, and a summary will (usually) be created.
+        """
+        
+        client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
+        gn = GNews(language='de', country='DE')
+        now = datetime.datetime.now().date()
+        # candidates = db.session.query(NewsUpdateCandidate).all()
+        all_candidates = (db.session.query(NewsUpdateCandidate)
+        .join(Vorgangsposition)  # Join with positions
+        .join(GesetzesVorhaben)  # Join with laws
+        .order_by(
+            GesetzesVorhaben.id,  # First group by law
+            Vorgangsposition.datum  # Then order by position date within each group
+        )
+        .all())
+        candidate_groups = {law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True)
+                            for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)}
+
+        for law_id, candidates in candidate_groups.items():
+            newer_exists = False
+            law = get_law_by_id(law_id)
+            infos = parse_law(law, display=False)
+            
+            completion_state = ""
+            for info in infos:
+                if info["marks_success"]:
+                    completion_state = "Das Ereignis, das den Start dieses Zeitraums markiert, markiert zugleich den erfolgreichen Abschluss des Gesetzgebungsverfahrens."
+                elif info["marks_failure"]:
+                    completion_state = "Das Ereignis, das den Start dieses Zeitraums markiert, markiert zugleich das Scheitern des Gesetzgebungsverfahrens."
+            completion_state = completion_state or "Das Ereignis, das den Start dieses Zeitraums markiert, ist das momentan aktuellste im laufenden Gesetzgebungsverfahren."
+            dummy_info = {"datetime": now, "ai_info": f"{completion_state} Die mit diesem Zeitraum verknüpften Nachrichtenartikel reichen somit bis zum heutigen Tag."}   
+                       
+            for i, candidate in enumerate(candidates):
+                position = candidate.position
+                info = next(inf for inf in infos if inf["id"] == position.id) # add a default here in case no match is found? That shouldn't be possible though
+                next_info = next(inf for inf in infos if inf["id"] == candidates[i-1].position.id) if i > 0 else dummy_info
+
+                if newer_exists:
+                    update_queries(client, law, now)
+                    update_news(client, gn, position, [info] + [next_info], law.queries, law)
+                    db.session.delete(candidate)
+                elif not candidate.next_update or candidate.next_update <= now:
+                    if not candidate.next_update:
+                        newer_exists = True  
+                    update_queries(client, law, now)
+                    update_news(client, gn, position, [info] + [next_info], law.queries, law)
+                    candidate.last_update = now
+                    candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
+                    candidate.update_count += 1
+                db.session.commit()
+
+                # if candidate.next_update and candidate.next_update <= now:
+                #     add_news(client, gn, position, info + dummy_info, queries, law, False)
+                #     candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
+                #     candidate.update_count += 1
+                # elif not candidate.next_update: # if candidate is newly added, we must first perform a final update for the prior candidate(s) and remove them from the update candidates list
+                #     prior_candidates = (db.session.query(NewsUpdateCandidate).join(Vorgangsposition).filter(
+                #         Vorgangsposition.vorgangs_id == position.vorgangs_id, Vorgangsposition.id != position.id).all())
+                #     prior_candidates.sort(key=lambda c:c.position.datum)
+                    
+                #     # there should usually only be 1 prior candidate at most, but there might be more in some edge cases
+                #     for i, prior_candidate in enumerate(prior_candidates):
+                #         prior_position = prior_candidate.position
+                #         prior_info = next(info for info in infos if info["id"] == prior_position.id) # add a default here in case no match is found? That shouldn't be possible though
+                #         next_info = next(info for info in infos if info["id"] == prior_candidates[i+1].position.id) if i < len(prior_candidates) - 1 else info
+                #         add_news(client, gn, prior_position, prior_info + next_info, queries, law, False)
+                #         db.session.delete(prior_candidate)
+
+                #     add_news(client, gn, position, info + dummy_info, queries, law, False)
+                #     candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
+                #     candidate.update_count += 1
+
+def update_queries(client, law, now):
+    # If queries haven't been updated in a while / at all, update them now
+    last_updated = law.queries_last_updated or datetime.date(1900, 1, 1)
+    if now - last_updated > QUERY_UPDATE_INTERVALS[min(law.query_update_counter, len(QUERY_UPDATE_INTERVALS) - 1)]:
+        law.queries = generate_search_queries(client, law)
+        law.queries_last_updated = now
+        law.query_update_counter += 1
+
+def update_news(client, gn, position, infos, queries, law=None):
+    news_info = get_news(client, gn, infos, law, queries, position)
+    
+    if not news_info["zusammenfassung"]:
+        return
+
+    if position.summary:
+        for article in position.summary.articles:
+            db.session.delete(article)
+        db.session.delete(position.summary)
+    
+    summary = NewsSummary()
+    summary.summary = news_info["zusammenfassung"]
+    summary.articles_found = news_info["relevant_hits"]
+    summary.position = position
+    db.session.add(summary) # need to commit here for articles to get added propperly?
+
+    for article in news_info["article_data"]:
+        a = NewsArticle()
+        a.description = article.get("description", "")
+        a.publisher = article.get("publisher", {}).get("title", "")
+        a.published_date = article.get("published date", None)
+        a.title = article.get("title", "")
+        a.url = article.get("url", "")
+        a.summary = summary
+        db.session.add(a)
+    db.session.commit()
 
 def update_inkrafttreten(inkrafttreten, law):
     existing_inkrafttreten = db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
@@ -120,9 +258,10 @@ def update_positionen(dip_id, law):
 
     cursor = ""
     response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
+    new_position_dates = []
     while response.ok and cursor != response.json().get("cursor", None):
         for item in response.json().get("documents", []):
-            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None
+            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None and item.get("gang", None) is True
             position = position or Vorgangsposition()
             if not position.aktualisiert or position.aktualisiert != item.get("aktualisiert", None): # may wanna check item.get("gang", False) here
                 position.dip_id = item.get("id", None)
@@ -151,8 +290,15 @@ def update_positionen(dip_id, law):
                 beschlussfassungen = item.get("beschlussfassung", [])
                 update_beschluesse(position, beschlussfassungen)
 
-                if new_position:
-                    add_news(position)
+                # if the position has been newly added, and no other new positions have already been added for the same day, add it to the queue of NewsUpdateCandidates 
+                if new_position and position.datum not in new_position_dates:
+                    new_position_dates.append(position.datum)
+                    news_update_candidate = NewsUpdateCandidate()
+                    news_update_candidate.position = position
+                    news_update_candidate.update_count = 0
+                    news_update_candidate.last_update = None
+                    news_update_candidate.next_update = None
+                    db.session.add(news_update_candidate)
         
         time.sleep(1)
         params["cursor"] = cursor = response.json().get("cursor", None)
@@ -214,8 +360,299 @@ def update_ueberweisungen(position, ueberweisungen):
         ueberweisung.position = position
         db.session.add(ueberweisung)
 
-def add_news(position):
-    pass
+def get_news(client, gn, infos, law, queries, position):
+    start_date = infos[0]["datetime"]
+    end_date = infos[1]["datetime"]
+    news_info = {"start": infos[0]['ai_info'], "end": infos[1]["ai_info"], "artikel": [], "article_data": [], "relevant_hits": 0, "zusammenfassung": None}
+
+    gn.start_date = (start_date.year, start_date.month, start_date.day)
+    gn.end_date = (end_date.year, end_date.month, end_date.day)
+
+    for query in queries:
+        # if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
+        #     break
+        
+        try:
+            if not (gnews_response := gn.get_news(query)):
+                raise Exception("did not get a response from gnews")
+        except Exception as e:
+            print(f"Error fetching news from gnews for query: {query}\nError: {e}\nstart date: {gn.start_date}\nend date: {gn.end_date}")
+            continue
+
+        try:
+            evaluate_results_schema = {
+                "name": "Artikel_Schema",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "artikel": {
+                            "type": "array",
+                            "description": "Die Liste der von dir bewerteten Artikel-Überschriften",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "index": {
+                                        "type": "number",
+                                        "description": "Die Indexnummer eines Artikels"
+                                    },
+                                    "passend": {
+                                        "type": "number",
+                                        "description": "1, wenn der Artikel mit dieser Indexnummer zum Gesetz passt, andernfalls 0"
+                                    }
+                                },
+                                "required": ["index", "passend"]
+                            }
+                        }
+                    },
+                    "required": ["artikel"]
+                }
+            }
+            evaluate_results_messages = [
+                {
+                    "content": f"""Du erhältst vom Nutzer eine Liste von strukturierten Daten. 
+                    Jeder Eintrag in der Liste besteht aus einer Indexnummer und der Überschrift eines Nachrichtenartikels, die Nachricht des Nutzers wird also folgende Struktur haben: 
+                    [{{'index': '1', 'titel': 'Ueberschrift_des_ersten_Nachrichtenartikels'}}, {{'index': '2', 'titel': 'Ueberschrift_des_zweiten_Nachrichtenartikels'}}, etc]. 
+                    Deine Aufgabe ist es, für jeden Eintrag anhand der Überschrift zu prüfen, ob der Nachrichtenartikel sich auf das deutsche Gesetz mit dem amtlichen Titel '{law.titel}' bezieht, oder nicht. 
+                    Dementsprechend wirst du in das Feld 'passend' in deiner Antwort entweder eine 1 (wenn der Nachrichtenartikel sich auf das Gesetz bezieht) oder eine 0 (wenn der Nachrichtenartikel sich nicht auf das Gesetz bezieht) eintragen.
+                    Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(evaluate_results_schema)}""",
+                    "role": "system"
+                },
+                {
+                    "content": json.dumps([{'index': i, 'titel': article["title"]} for i, article in enumerate(gnews_response)], ensure_ascii=False),
+                    "role": "user"
+                }
+            ]
+            ai_response = get_structured_data_from_ai(client, evaluate_results_messages, evaluate_results_schema, "artikel")
+
+            for i in range(len(gnews_response) - 1, -1, -1):
+                if ai_response[i]["passend"] in {0, '0'}:
+                    gnews_response.pop(i)
+
+        except Exception as e:
+            print(f"Error evaluating search results: {e}\nAI Response: {ai_response}")
+            continue
+
+        news_info["relevant_hits"] += len(gnews_response)
+            
+        for article in gnews_response:
+            if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
+                break
+            
+            try:
+                url = gnewsdecoder(article["url"], 3)
+                if url["status"]:
+                    article["url"] = url["decoded_url"]
+                else:
+                    print(f"Error decoding URL of {article}")
+                    continue  
+            except Exception as e:
+                print(f"Unknown Error {e} while decoding URL of {article}")
+                continue 
+
+            try:
+                news_article = newspaper.article(article["url"], language='de')
+                news_article.download()
+                news_article.parse()
+            except Exception as e:
+                print(f"Error parsing news article: {e}")
+                continue
+
+            if not news_article.is_valid_body() or len(news_article.text) < MINIMUM_ARTICLE_LENGTH or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH:
+                print(f"Article too long or too short at {len(news_article.text)} characters.")
+                continue
+            
+            # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
+            if not news_article.publish_date or news_article.publish_date.date() >= end_date:
+                print(f"News article {news_article.title} ignored due to invalid publish date")
+                continue
+
+            news_info["artikel"].append(news_article.text)
+            news_info["article_data"].append(article)
+
+    if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
+        return news_info
+
+    # if a summary already exists
+    if position.summary:
+        # ...no need to make a new one if the old one was based on a sufficient number of articles and we haven't seen at least a 1.5x increase in article count since then
+        if news_info["relevant_hits"] > position.summary.articles_found >= IDEAL_ARTICLE_COUNT:
+            if news_info["relevant_hits"] < position.summary.articles_found * 1.5:
+                return news_info
+        # ...obviously, don't make a new one if we haven't seen an increase in article count at all, either
+        elif news_info["relevant_hits"] <= position.summary.articles_found:
+            return news_info
+        # ...or if the actual articles that the summary was based on then, and would be based on now, are identical
+        # (that would be unfortunate, though: If the article count has increased substantially, 
+        # yet the actual articles chosen for the summary creation are the same as last time, that would suggest that there has been a new development, 
+        # which is not reflected in the articles chosen for summary creation. I might change the above code to account for this possibility.
+        # For now, though, I trust that Google News orders its results such that new articles containing new developments will be amongst the first
+        # to get processed, and therefore end up in the selection of articles for the new summary.)
+        if all(any(new_article["url"] == existing_article.url for existing_article in position.summary.articles) for new_article in news_info["article_data"]):
+            return news_info    
+
+    generate_summary_messages = [
+        {
+            "content": f"""Du erhältst vom Nutzer Angaben zu einem Zeitraum innerhalb des Gesetzgebungsverfahrens für das deutsche Gesetz mit dem amtlichen Titel {law.titel}. 
+            Der Nutzer schickt dir das Ereignis, das am Anfang des Zeitraums steht, das Ereignis, das unmittelbar nach dem Ende des Zeitraums eintreten wird, und eine Liste von Nachrichtenartikeln, die innerhalb des Zeitraums erschienen sind.
+            Die Nachricht des Nutzers wird also folgendes Format haben:
+            'start': 'Die Bundesregierung bringt den Gesetzentwurf in den Bundestag ein', 'end': 'Die 1. Lesung im Bundestag findet statt.', 'artikel': ['Nachrichtenartikel 1', 'Nachrichtenartikel 2', etc]
+            
+            Du musst diese Nachricht in zwei Phasen bearbeiten.
+            PHASE 1:
+            Zunächst sollst du alle Nachrichtenartikel überprüfen. Falls ein Nachrichtenartikel sich nicht auf das Gesetz bezieht, oder nicht zu dem vom Nutzer angegebenen Zeitraum passt, MUSST DU IHN IGNORIEREN.
+            Beachte dabei folgendes: Das Ereignis, das im Feld 'end' eines jeden Zeitabschnitts genannt wird, ist **in dem jeweiligen Zeitabschnitt noch nicht passiert**, sondern passiert erst unmittelbar nach diesem Zeitabschnitt. (Es sei denn, der Wert im Feld start markiert das vorläufige oder endgültige Ende des Gesetzgebungsverfahrens, und der Wert im Feld end markiert den heutigen Tag.)
+            Wenn ein Zeitabschnitt also zum Beispiel end = "Die Beratung und Abstimmung im Bundesrat finden statt" hat, und mit diesem Zeitraum ein Nachrichtenartikel verknüpft ist, in dem steht, dass die Abstimmung im Bundesrat schon stattgefunden habe, dann ist dieser Nachrichtenartikel irrtümlich in die Liste der Artikel für diesen Zeitraum geraten, und **muss beim Erstellen der Zusammenfassung für diesen Zeitraum ignoriert werden**.
+            
+            PHASE 2:
+            Wenn du entschieden hast, ob und gegebenenfalls welche Nachrichtenartikel du ignorieren musst, sollst du eine Zusammenfassung der wichtigsten und interessantesten Inhalte der übrigen Nachrichtenartikel erstellen.
+            Wichtige / interessante nachrichtliche Inhalte sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen oder Verbänden sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. 
+            Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese sollte in die Zusammenfassung nur aufgenommen werden, wenn sich aus den Nachrichtenartikeln nichts anderes, interessantes ergibt.            
+            Einleitende Formulierungen wie "Im ersten Zeitraum" oder "In diesem Zeitraum" am Anfang der Zusammenfassung sollst du vermeiden. Du sollst aber auf das Ereignis Bezug nehmen, das den Start des jeweiligen Zeitraums markiert, sofern es in den Nachrichtenartikeln eine Rolle gespielt hat. 
+            Die Zusammenfassung muss mindestens {SUMMARY_LENGTH - 100} und darf höchstens {SUMMARY_LENGTH + 100} Zeichen lang sein.
+            Deine Zusammenfassung soll im Präsens verfasst sein. 
+            Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. 
+            """,
+            "role": "system"
+        },
+        {
+            "content": json.dumps({'start': news_info["start"], 'end': news_info['end'], 'artikel': [artikel for artikel in news_info["artikel"]]}, ensure_ascii=False).replace("\\n", "\n").replace('\\"', '"'),
+            "role": "user"
+        }
+    ]
+
+    if not (ai_response := get_text_data_from_ai(client, generate_summary_messages)):
+        print(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
+    
+    news_info["zusammenfassung"] = ai_response
+    return news_info
+
+def generate_search_queries(client, law):
+    shorthand = extract_shorthand(law.titel) if law.titel.endswith(")") else ""
+    queries = []
+
+    search_queries_schema = {
+        "name": "Suchanfragen_Schema",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "suchanfragen": {
+                    "type": "array",
+                    "description": "Die Liste der von dir generierten Suchanfragen",
+                    "items": {
+                        "type": "string",
+                        "description": "Eine von dir generierte Suchanfrage"
+                    }
+                }
+            },
+            "required": ["suchanfragen"]
+        }
+    }
+    generate_search_queries_messages = [
+        {
+            "content": f"""Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes. Dieser ist oft sperrig und klingt nach Behördensprache. 
+            Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. 
+            Generiere dann 3 Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz.
+            Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird.  
+            Achte darauf, die einzelnen Suchanfragen nicht so restriktiv zu machen, dass relevante Nachrichtenartikel nicht gefunden werden. 
+            Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. 
+            Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur haben:
+            {json.dumps(search_queries_schema)}
+            """,
+            "role": "system"
+        },
+        {
+            "content": law.titel,
+            "role": "user"
+        }
+    ]
+    
+    try:
+        ai_response = get_structured_data_from_ai(client, generate_search_queries_messages, search_queries_schema, "suchanfragen")
+        queries = [query for query in ai_response if query]
+
+    except Exception as e:
+        print(f"Error generating search query.\nError: {e}\nAI response: {ai_response}")
+        return None
+    
+    if shorthand and shorthand not in queries:
+        queries.insert(0, shorthand)
+    
+    return queries
+
+def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
+    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+
+    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+    for i, model in enumerate(models):
+        response = client.chat.completions.create(model=model,
+                                                    extra_body={
+                                                        'models': models[i+1:],
+                                                        'provider': {'require_parameters': True,
+                                                                        'sort': 'throughput'},
+                                                        'temperature': 0.5},
+                                                        messages=messages, 
+                                                        response_format={'type': 'json_schema', 
+                                                                        'json_schema': schema})
+        if response.choices:
+            break
+
+    if not response.choices or not response.choices[0].message.content:
+        print(f"Error getting response from AI with messages: {messages}")
+        return None
+    
+    ai_response = response.choices[0].message.content
+    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+    
+    try:
+        ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
+        return ai_response
+    except Exception as e:
+        print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}")
+        return None
+        
+
+def get_text_data_from_ai(client, messages):
+    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+    
+    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+    for i, model in enumerate(models):
+        response = client.chat.completions.create(model=model, 
+                                                    extra_body={
+                                                        'models': models[i+1:],
+                                                        'provider': {'sort': 'throughput'},
+                                                        'temperature': 0.5},
+                                                        messages=messages)
+        if response.choices:
+            break
+
+    if not response.choices or not response.choices[0].message.content:
+        print(f"Error getting response from AI with messages: {messages}")
+        return None
+
+    ai_response = response.choices[0].message.content
+
+    # this shouldn't be necessary, but just in case
+    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+    return ai_response
+
+def extract_shorthand(titel):
+    # Extract the shorthand (not the abbreviation) from the title of a law, if there is one
+    parentheses_start = max(6, titel.rfind("(")) # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
+    abbreviation_start = parentheses_start + 1
+    while titel[abbreviation_start].isdigit() or titel[abbreviation_start] in {".", " "}: # (2. Betriebsrentenstärkungsgesetz) -> Betriebsrentenstärkungsgesetz
+        abbreviation_start += 1
+    abbreviation_start = max(abbreviation_start, titel.find("- und ", abbreviation_start, len(titel) - 1) + len("- und ")) # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
+    abbreviation_end = titel.find(" - ", abbreviation_start, len(titel) - 1) if titel.find(" - ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1 # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
+    abbreviation_end = titel.find(" – ", abbreviation_start, len(titel) - 1) if titel.find(" – ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1 # same thing, except with long dash
+    abbreviation = f"{titel[abbreviation_start:abbreviation_end]}*"
+    return abbreviation
 
 def update_law_in_es(law):
     try:

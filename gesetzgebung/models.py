@@ -2,7 +2,7 @@ from gesetzgebung.database import db
 from typing import List, ClassVar
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, func
-
+import datetime
 
 class AppMetadata(db.Model):
     __tablename__ = 'app_metadata'
@@ -19,6 +19,14 @@ class Beschlussfassung(db.Model):
     seite = db.Column(db.String(100), nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
     position = db.relationship('Vorgangsposition', back_populates='beschluesse', lazy=False)
+
+class BeschlussfassungDisplay: # not an actual database class, used for modifications before display
+    def __init__(self, beschluss):
+        self.beschlusstenor = beschluss.beschlusstenor
+        self.dokumentnummer = beschluss.dokumentnummer
+        self.abstimm_ergebnis_bemerkung = beschluss.abstimm_ergebnis_bemerkung
+        self.seite = beschluss.seite
+        self.positions_id = beschluss.positions_id
 
 class Fundstelle(db.Model):
     __tablename__ = 'fundstellen'
@@ -63,10 +71,22 @@ class NewsSummary(db.Model):
     __tablename__ = 'summaries'
 
     id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=True)
+    articles_found = db.Column(db.Integer, nullable=True)
     summary = db.Column(db.Text, nullable=True) 
-    articles : ClassVar[List[NewsArticle]] = db.relationship('NewsArticle', back_populates='summary', lazy=False)
+    articles : ClassVar[List[NewsArticle]] = db.relationship('NewsArticle', back_populates='summary', lazy=False, cascade='all, delete-orphan')
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
     position = db.relationship('Vorgangsposition', back_populates='summary', lazy=False)
+
+class NewsUpdateCandidate(db.Model):
+    __tablename__ = 'news_update_candidate'
+
+    id = db.Column(db.Integer, primary_key=True)
+    last_update = db.Column(db.Date, nullable=True)
+    next_update = db.Column(db.Date, nullable=True)
+    update_count = db.Column(db.Integer, nullable=True, default=0)
+    positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
+    position = db.relationship('Vorgangsposition', back_populates='update_candidate', lazy=False)
 
 class Vorgangsposition(db.Model):
     __tablename__ = 'positionen'
@@ -84,10 +104,11 @@ class Vorgangsposition(db.Model):
     datum = db.Column(db.Date, nullable=True)
     aktualisiert = db.Column(db.DateTime, nullable=True)
     
-    ueberweisungen : ClassVar[List[Ueberweisung]] = db.relationship('Ueberweisung', back_populates='position', lazy=False)
-    fundstelle : ClassVar[Fundstelle] = db.relationship('Fundstelle', back_populates='position', lazy=False, uselist=False)
-    beschluesse : ClassVar[List[Beschlussfassung]] = db.relationship('Beschlussfassung', back_populates='position', lazy=False)
-    summary : ClassVar[Fundstelle] = db.relationship('NewsSummary', back_populates='position', lazy=False, uselist=False)
+    ueberweisungen : ClassVar[List[Ueberweisung]] = db.relationship('Ueberweisung', back_populates='position', lazy=False, cascade='all, delete-orphan')
+    fundstelle : ClassVar[Fundstelle] = db.relationship('Fundstelle', back_populates='position', lazy=False, uselist=False, cascade='all, delete-orphan')
+    beschluesse : ClassVar[List[Beschlussfassung]] = db.relationship('Beschlussfassung', back_populates='position', lazy=False, cascade='all, delete-orphan')
+    summary : ClassVar[Fundstelle] = db.relationship('NewsSummary', back_populates='position', lazy=False, uselist=False, cascade='all, delete-orphan')
+    update_candidate : ClassVar[NewsUpdateCandidate] = db.relationship('NewsUpdateCandidate', back_populates='position', lazy=False, uselist=False, cascade='all, delete-orphan')
     
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
     gesetz = db.relationship('GesetzesVorhaben', back_populates='vorgangspositionen', lazy=False)
@@ -131,20 +152,25 @@ class GesetzesVorhaben(db.Model):
     inkrafttreten = db.Column(db.ARRAY(db.Date), nullable=True)
     titel = db.Column(db.Text, nullable=True)
     datum = db.Column(db.Date, nullable=True)
-    vorgangspositionen : ClassVar[List[Vorgangsposition]] = db.relationship('Vorgangsposition', back_populates='gesetz', lazy=False)
-    verkuendung : ClassVar[List[Verkuendung]] = db.relationship('Verkuendung', back_populates='vorhaben', lazy=False) 
-    inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship('Inkrafttreten', back_populates='inkrafttreten_vorhaben', lazy=False)
+    vorgangspositionen : ClassVar[List[Vorgangsposition]] = db.relationship('Vorgangsposition', back_populates='gesetz', lazy=False, cascade='all, delete-orphan')
+    verkuendung : ClassVar[List[Verkuendung]] = db.relationship('Verkuendung', back_populates='vorhaben', lazy=False, cascade='all, delete-orphan')
+    inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship('Inkrafttreten', back_populates='inkrafttreten_vorhaben', lazy=False, cascade='all, delete-orphan')
+    queries = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
+    queries_last_updated = db.Column(db.Date, nullable=True, default=datetime.date(1900, 1, 1))
+    query_update_counter = db.Column(db.Integer, nullable=True, default=0)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.beratungsstand = self.beratungsstand or []
+        self.queries = self.queries or []
+
 
 def get_all_laws() -> List[GesetzesVorhaben]:
     return GesetzesVorhaben.query.all()
 
 def get_law_by_id(id) -> GesetzesVorhaben:
     id = int(id)
-    return db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.id == id).order_by(Vorgangsposition.id).first()
+    return db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.id == id).first()
 
 def get_law_by_dip_id(id) -> GesetzesVorhaben:
     id = int(id)

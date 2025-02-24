@@ -1,5 +1,4 @@
 from gesetzgebung.models import *
-import copy
 import re
 from urllib.parse import quote
 
@@ -99,7 +98,7 @@ ueberstimmung_des_br_bei_einspruchsgesetz = {"text": "Der Bundestag muss den vom
 
 # TODO: pfad bundestag anders bei bes. Eilbedürftigkeit?
 basispfad = [gesetzentwurf_bt, erste_beratung, beschlussempfehlung, zweite_beratung, dritte_beratung, zweite_und_dritte_beratung, entscheidender_durchgang_br]
-pfad_bundestag = [gesetzentwurf_br] + basispfad 
+pfad_bundestag = basispfad # + [gesetzentwurf_br]?
 pfad_bundesregierung = [erster_durchgang_br] + pfad_bundestag 
 pfad_bundesrat = [gesetzesantrag_br, br_einbringungsbeschluss] + basispfad 
 
@@ -201,7 +200,7 @@ def parse_beschluesse(law, beschluesse:List[Beschlussfassung]) -> str:#
     text += "\n"
     return text
 
-def merge_beschluesse(beschluesse : List[Beschlussfassung], zweite_und_dritte_beratung=False, needs_copy=True) -> List[Beschlussfassung]:
+def merge_beschluesse(beschluesse : List[BeschlussfassungDisplay], zweite_und_dritte_beratung=False) -> List[BeschlussfassungDisplay]:
     """ Merge Beschlüsse which differ only in their .abstimm_ergebnis_bemerkung by concatenating their abstimm_ergebnis_bemerkung.
     Can merge Beschlüsse from a single Beratung or from a second and third Beratung. In the latter case, assumes that all beschluesse from
     the second beratung come first, followed by all from the third beratung, and takes a dict zweite_und_dritte_beratung to indicates which 
@@ -221,7 +220,7 @@ def merge_beschluesse(beschluesse : List[Beschlussfassung], zweite_und_dritte_be
             continue
 
         contains_beschluesse_from = {beschluesse[i].positions_id}
-        merged = copy.deepcopy(beschluesse[i]) if needs_copy else beschluesse[i]
+        merged = beschluesse[i]
         first_beschluss_from_dritte_beratung = True
 
         for j in range(i+1, len(beschluesse)):

@@ -1,4 +1,3 @@
-
 import os
 import locale
 from dotenv import load_dotenv
@@ -6,6 +5,7 @@ from gesetzgebung.flask_file import app
 from gesetzgebung.database import db
 from gesetzgebung.es_file import *
 from gesetzgebung.models import *
+from sqlalchemy import text 
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -22,4 +22,14 @@ app.config['DEBUG'] = DEBUG
 db.init_app(app)
 
 with app.app_context():
+    # TODO: This does not work as is because models.py is not loaded at this point(?)
+    db.session.execute(text("""
+        ALTER TABLE vorhaben 
+        ADD COLUMN IF NOT EXISTS queries text[] DEFAULT '{}',
+        ADD COLUMN IF NOT EXISTS queries_last_updated date DEFAULT '1900-01-01',
+        ADD COLUMN IF NOT EXISTS query_update_counter integer DEFAULT 0;
+    """))
+    db.session.commit()
+    
+    # This will create any missing tables and relations
     db.create_all()

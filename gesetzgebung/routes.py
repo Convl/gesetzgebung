@@ -7,7 +7,6 @@ from gesetzgebung.helpers import *
 from flask import render_template, request, jsonify
 import datetime
 import copy
-import re
 import os
 import json
 from openai import OpenAI
@@ -15,18 +14,6 @@ import newspaper
 from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
 import re
-
-def extract_abbreviation(titel):
-    # Extract the shorthand (not the abbreviation) from the title of a law, if there is one
-    parentheses_start = max(6, titel.rfind("(")) # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
-    abbreviation_start = parentheses_start + 1
-    while titel[abbreviation_start].isdigit() or titel[abbreviation_start] in {".", " "}: # (2. Betriebsrentenstärkungsgesetz) -> Betriebsrentenstärkungsgesetz
-        abbreviation_start += 1
-    abbreviation_start = max(abbreviation_start, titel.find("- und ", abbreviation_start, len(titel) - 1) + len("- und ")) # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
-    abbreviation_end = titel.find(" - ", abbreviation_start, len(titel) - 1) if titel.find(" - ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1 # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
-    abbreviation_end = titel.find(" – ", abbreviation_start, len(titel) - 1) if titel.find(" – ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1 # same thing, except with long dash
-    abbreviation = f"{titel[abbreviation_start:abbreviation_end]}*"
-    return abbreviation
 
 def query_from_spacy(titel, nlp):
     # This function is no longer needed, as extract_abbreviation + AI query generation yields superior results
@@ -70,330 +57,6 @@ def query_from_spacy(titel, nlp):
 
     return " + ".join(word for word in words)
 
-def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
-    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
-
-    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
-    for i, model in enumerate(models):
-        response = client.chat.completions.create(model=model,
-                                                    extra_body={
-                                                        'models': models[i+1:],
-                                                        'provider': {'require_parameters': True,
-                                                                        'sort': 'throughput'},
-                                                        'temperature': 0.5},
-                                                        messages=messages, 
-                                                        response_format={'type': 'json_schema', 
-                                                                        'json_schema': schema})
-        if response.choices:
-            break
-
-    if not response.choices or not response.choices[0].message.content:
-        print(f"Error getting response from AI with messages: {messages}")
-        return None
-    
-    ai_response = response.choices[0].message.content
-    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
-    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
-    
-    try:
-        ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
-        return ai_response
-    except Exception as e:
-        print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}")
-        return None
-        
-
-def get_text_data_from_ai(client, messages):
-    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
-    
-    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
-    for i, model in enumerate(models):
-        response = client.chat.completions.create(model=model, 
-                                                    extra_body={
-                                                        'models': models[i+1:],
-                                                        'provider': {'sort': 'throughput'},
-                                                        'temperature': 0.5},
-                                                        messages=messages)
-        if response.choices:
-            break
-
-    if not response.choices or not response.choices[0].message.content:
-        print(f"Error getting response from AI with messages: {messages}")
-        return None
-
-    ai_response = response.choices[0].message.content
-
-    # this shouldn't be necessary, but just in case
-    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
-    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
-    return ai_response
-    
-@app.route("/bla")
-def bla(law=None, infos=None):
-    SUMMARY_LENGTH = 700
-    IDEAL_ARTICLE_COUNT = 5
-    MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
-    MINIMUM_ARTICLE_LENGTH = 3500
-    MAXIMUM_ARTICLE_LENGTH = 20000
-    AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-    AI_ENDPOINT = "https://openrouter.ai/api/v1"
-
-    # class Zeitraum(BaseModel):
-    #     zusammenfassung: str = Field(strict=True, description="Die von dir erstellte Zusammenfassung.")
-
-    # class Zeitraeume(BaseModel):
-    #     zeitraeume: list[Zeitraum] = Field(strict=True, description="Die Liste der von dir erstellten Zusammenfassungen.")
-
-    # class Suchergebnis(BaseModel):
-    #     index: int = Field(strict=True, description="Der Index des Nachrichtenartikels in der Liste der Nachrichtenartikel, die du erhalten hast.")
-    #     passend: int = Field(strict=True, description="Eine 1, wenn der Nachrichtenartikel sich auf das im system prompt erwähnte Gesetz bezieht, und eine 0, wenn nicht.")
-    
-    # class Suchergebnisse(BaseModel):
-    #     suchergebnisse: list[Suchergebnis] = Field(strict=True, description="Die Liste der von dir als passend oder unpassend bewerteten Suchergebnisse.")
-
-    # class Suchanfrage(BaseModel):
-    #     suchanfrage: str = Field(strict=True, description="Eine der von dir generierten Suchanfragen.") 
-
-    # class Suchanfragen(BaseModel):
-    #     suchanfragen: list[Suchanfrage] = Field(strict=True, description="Die Liste der 3 von dir erstellten Suchanfragen.")
-
-    
-    client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
-    gn = GNews(language='de', country='DE')
-
-    abbreviation = extract_abbreviation(law.titel) if law.titel.endswith(")") else ""
-    queries = []
-
-    search_queries_schema = {
-        "name": "Suchanfragen_Schema",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "suchanfragen": {
-                    "type": "array",
-                    "description": "Die Liste der von dir generierten Suchanfragen",
-                    "items": {
-                        "type": "string",
-                        "description": "Eine von dir generierte Suchanfrage"
-                    }
-                }
-            },
-            "required": ["suchanfragen"]
-        }
-    }
-    generate_search_queries_messages = [
-        {
-            "content": f"""Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes. Dieser ist oft sperrig und klingt nach Behördensprache. 
-            Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. 
-            Generiere dann 3 Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz.
-            Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird.  
-            Achte darauf, die einzelnen Suchanfragen nicht so restriktiv zu machen, dass relevante Nachrichtenartikel nicht gefunden werden. 
-            Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. 
-            Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur haben:
-            {json.dumps(search_queries_schema)}
-            """,
-            "role": "system"
-        },
-        {
-            "content": law.titel,
-            "role": "user"
-        }
-    ]
-    
-    try:
-        ai_response = get_structured_data_from_ai(client, generate_search_queries_messages, search_queries_schema, "suchanfragen")
-        queries = [query for query in ai_response if query]
-
-    except Exception as e:
-        print(f"Error generating search query.\nError: {e}\nAI response: {ai_response}")
-        return infos
-    
-    if abbreviation and abbreviation not in queries:
-        queries.insert(0, abbreviation)
-    
-    i = 0
-    news_infos = []
-    while i < len(infos):
-        if infos[i].get("datum", None) is None: # position is in the future
-            break
-
-        start_date = datetime.datetime.strptime(infos[i]["datum"], "%d. %B %Y")
-        news_info = {"index": i, "start": infos[i]['ai_info'], "artikel": [], "article_data": []}
-
-        if i == len(infos) - 1 or infos[i + 1].get("datum", None) is None:
-            end_date = datetime.datetime.now()
-            news_info["end"] = "Das Ereignis, das den Start dieses Zeitraums markiert, ist der (bislang) letzte Schritt im Gesetzgebungsverfahren. Der Zeitraum, aus dem die mit diesem Zeitraum verknüpften Nachrichtenartikel stammen, reicht somit bis zum heutigen Tag."
-        else:
-            end_date = datetime.datetime.strptime(infos[i + 1]["datum"], "%d. %B %Y") # - datetime.timedelta(days=1)
-            news_info["end"] = infos[i + 1]['ai_info']
-
-        if start_date == end_date: # don't need news summary between two events on the same day
-            i += 1
-            continue
-
-        gn.start_date = (start_date.year, start_date.month, start_date.day)
-        gn.end_date = (end_date.year, end_date.month, end_date.day)
-
-        for query in queries:
-            if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
-                break
-            
-            try:
-                if not (gnews_response := gn.get_news(query)):
-                    raise Exception("did not get a response from gnews")
-            except Exception as e:
-                print(f"Error fetching news from gnews for query: {query}\nError: {e}\start date: {gn.start_date}\nend date: {gn.end_date}")
-                continue
-
-            try:
-                evaluate_results_schema = {
-                    "name": "Artikel_Schema",
-                    "strict": True,
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "artikel": {
-                                "type": "array",
-                                "description": "Die Liste der von dir bewerteten Artikel-Überschriften",
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": False,
-                                    "properties": {
-                                        "index": {
-                                            "type": "number",
-                                            "description": "Die Indexnummer eines Artikels"
-                                        },
-                                        "passend": {
-                                            "type": "number",
-                                            "description": "1, wenn der Artikel mit dieser Indexnummer zum Gesetz passt, andernfalls 0"
-                                        }
-                                    },
-                                    "required": ["index", "passend"]
-                                }
-                            }
-                        },
-                        "required": ["artikel"]
-                    }
-                }
-                evaluate_results_messages = [
-                    {
-                        "content": f"""Du erhältst vom Nutzer eine Liste von strukturierten Daten. 
-                        Jeder Eintrag in der Liste besteht aus einer Indexnummer und der Überschrift eines Nachrichtenartikels, die Nachricht des Nutzers wird also folgende Struktur haben: 
-                        [{{'index': '1', 'titel': 'Ueberschrift_des_ersten_Nachrichtenartikels'}}, {{'index': '2', 'titel': 'Ueberschrift_des_zweiten_Nachrichtenartikels'}}, etc]. 
-                        Deine Aufgabe ist es, für jeden Eintrag anhand der Überschrift zu prüfen, ob der Nachrichtenartikel sich auf das deutsche Gesetz mit dem amtlichen Titel '{law.titel}' bezieht, oder nicht. 
-                        Dementsprechend wirst du in das Feld 'passend' in deiner Antwort entweder eine 1 (wenn der Nachrichtenartikel sich auf das Gesetz bezieht) oder eine 0 (wenn der Nachrichtenartikel sich nicht auf das Gesetz bezieht) eintragen.
-                        Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(evaluate_results_schema)}""",
-                        "role": "system"
-                    },
-                    {
-                        "content": json.dumps([{'index': j, 'titel': article["title"]} for j, article in enumerate(gnews_response)], ensure_ascii=False),
-                        "role": "user"
-                    }
-                ]
-                ai_response = get_structured_data_from_ai(client, evaluate_results_messages, evaluate_results_schema, "artikel")
-
-                for j in range(len(gnews_response) - 1, -1, -1):
-                    if ai_response[j]["passend"] in {0, '0'}:
-                        gnews_response.pop(j)
-
-            except Exception as e:
-                print(f"Error evaluating search results: {e}\nAI Response: {ai_response}")
-                continue
-                
-            for article in gnews_response:
-                if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
-                    break
-                
-                try:
-                    url = gnewsdecoder(article["url"], 3)
-                    if url["status"]:
-                        article["url"] = url["decoded_url"]
-                    else:
-                        print(f"Error decoding URL of {article}")
-                        continue  
-                except Exception as e:
-                    print(f"Unknown Error while decoding URL of {article}")
-                    continue 
-
-                try:
-                    news_article = newspaper.article(article["url"], language='de')
-                    news_article.download()
-                    news_article.parse()
-                except Exception as e:
-                    print(f"Error parsing news article: {e}\nNews Article: {news_article}")
-                    continue
-
-                if not news_article.is_valid_body() or len(news_article.text) < MINIMUM_ARTICLE_LENGTH or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH:
-                    print(f"Article too long or too short at {len(news_article.text)} characters.")
-                    continue
-                
-                # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
-                if not news_article.publish_date or news_article.publish_date.replace(tzinfo=None) >= end_date:
-                    print(f"News article {news_article} ignored due to invalid publish date")
-                    continue
-
-                news_info["artikel"].append(news_article.text)
-                news_info["article_data"].append(article)
-
-        news_infos.append(news_info)
-        i += 1
-
-    # can't submit all intervals / articles in one message, or DeepSeek-R1 will get the timelines mixed up
-    for news_info in news_infos:
-        if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
-            continue
-
-        generate_summary_messages = [
-            {
-                "content": f"""Du erhältst vom Nutzer Angaben zu einem Zeitraum innerhalb des Gesetzgebungsverfahrens für das deutsche Gesetz mit dem amtlichen Titel {law.titel}. 
-                Der Nutzer schickt dir das Ereignis, das am Anfang des Zeitraums steht, das Ereignis, das unmittelbar nach dem Ende des Zeitraums eintreten wird, und eine Liste von Nachrichtenartikeln, die innerhalb des Zeitraums erschienen sind.
-                Die Nachricht des Nutzers wird also folgendes Format haben:
-                'start': 'Die Bundesregierung bringt den Gesetzentwurf in den Bundestag ein', 'end': 'Die 1. Lesung im Bundestag findet statt.', 'artikel': ['Nachrichtenartikel 1', 'Nachrichtenartikel 2', etc]
-                
-                Du musst diese Nachricht in zwei Phasen bearbeiten.
-                PHASE 1:
-                Zunächst sollst du alle Nachrichtenartikel überprüfen. Falls ein Nachrichtenartikel sich nicht auf das Gesetz bezieht, oder nicht zu dem vom Nutzer angegebenen Zeitraum passt, MUSST DU IHN IGNORIEREN.
-                Beachte dabei folgendes: Das Ereignis, das im Feld 'end' eines jeden Zeitabschnitts genannt wird, ist **in dem jeweiligen Zeitabschnitt noch nicht passiert**, sondern passiert erst unmittelbar nach diesem Zeitabschnitt. (Es sei denn, der Wert im Feld end lautet: 'Das Ereignis, das den Start dieses Zeitraums markiert, ist der (bislang) letzte Schritt im Gesetzgebungsverfahren. Der Zeitraum, aus dem die mit diesem Zeitraum verknüpften Nachrichtenartikel stammen, reicht somit bis zum heutigen Tag.'.)
-                Wenn ein Zeitabschnitt also zum Beispiel end = "Die Beratung und Abstimmung im Bundesrat finden statt" hat, und mit diesem Zeitraum ein Nachrichtenartikel verknüpft ist, in dem steht, dass die Abstimmung im Bundesrat schon stattgefunden habe, dann ist dieser Nachrichtenartikel irrtümlich in die Liste der Artikel für diesen Zeitraum geraten, und **muss beim Erstellen der Zusammenfassung für diesen Zeitraum ignoriert werden**.
-                
-                PHASE 2:
-                Wenn du entschieden hast, ob und gegebenenfalls welche Nachrichtenartikel du ignorieren musst, sollst du eine Zusammenfassung der wichtigsten und interessantesten Inhalte der übrigen Nachrichtenartikel erstellen.
-                Wichtige / interessante nachrichtliche Inhalte sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen oder Verbänden sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. 
-                Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese sollte in die Zusammenfassung nur aufgenommen werden, wenn sich aus den Nachrichtenartikeln nichts anderes, interessantes ergibt.            
-                Einleitende Formulierungen wie "Im ersten Zeitraum" oder "In diesem Zeitraum" am Anfang der Zusammenfassung sollst du vermeiden. Du sollst aber auf das Ereignis Bezug nehmen, das den Start des jeweiligen Zeitraums markiert, sofern es in den Nachrichtenartikeln eine Rolle gespielt hat. 
-                Die Zusammenfassung muss mindestens {SUMMARY_LENGTH - 100} und darf höchstens {SUMMARY_LENGTH + 100} Zeichen lang sein.
-                Deine Zusammenfassung soll im Präsens verfasst sein. 
-                Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. 
-                """,
-                "role": "system"
-            },
-            {
-                "content": json.dumps({'start': news_info["start"], 'end': news_info['end'], 'artikel': [artikel for artikel in news_info["artikel"]]}, ensure_ascii=False).replace("\\n", "\n").replace('\\"', '"'),
-                "role": "user"
-            }
-        ]
-
-        if not (ai_response := get_text_data_from_ai(client, generate_summary_messages)):
-            print(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
-            return infos
-
-        news_info["zusammenfassung"] = ai_response
-
-
-    offset = 0
-    for i, news_info in enumerate(news_infos):
-        if news_info.get("zusammenfassung", None):
-            info = {"datum": start_date.strftime("%d. %B %Y"), 
-                    "vorgangsposition": "Nachrichtenartikel",
-                    "text": news_info["zusammenfassung"]}
-            infos.insert(int(news_info.get("index", i)) + offset + 1, info) 
-            offset += 1
-
-    return infos
-
 
 @app.route('/', methods=["GET", "POST"])
 @app.route('/index')
@@ -406,7 +69,9 @@ def submit(law_titel):
     law_id = request.args.get('id')
     if not law_id or not (law := get_law_by_id(law_id)):
         return render_template("error.html")
+    return parse_law(law)
 
+def parse_law(law, display=True):
     # ------------------ Phase 0: Gather preliminary information ----------------- #
 
     nachtraege = db.session.execute(db.select(Vorgangsposition.vorgangsposition, Fundstelle.pdf_url).filter(
@@ -428,6 +93,7 @@ def submit(law_titel):
     pfad = copy.deepcopy(pfade[initiative])
 
     law.vorgangspositionen.sort(key=lambda vp: vp.datum) # TODO: Find out why this is even necessary (in rare cases, like dip_id 315332)
+    
     infos = []
 
     # ---- Phase I: Parse all Vorgangspositionen (what has happened thus far) ---- #
@@ -444,7 +110,10 @@ def submit(law_titel):
                 "passed": True,
                 "marks_failure": False,
                 "marks_success": False}
-        
+        if not display:
+            info["datetime"] = position.datum
+            info["id"] = position.id
+
         for nachtrag in nachtraege:
             if nachtrag["vorgangsposition"] == position.vorgangsposition:
                 info["link"] += f', <a href="{nachtrag["pdf_url"]}">Nachtrag</a>'
@@ -515,12 +184,14 @@ def submit(law_titel):
     
                     ai_info = text = "Die 2. und 3. Lesung im Bundestag finden am selben Tag statt."
 
-                    position_beschluesse = copy.deepcopy(position.beschluesse)
-                    beschluesse_dritte_beratung = copy.deepcopy(beschluesse_dritte_beratung)
+                    position_beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                    beschluesse_dritte_beratung = [BeschlussfassungDisplay(b) for b in beschluesse_dritte_beratung]
                     position_beschluesse.extend(beschluesse_dritte_beratung)
+
+                    # Now you can safely modify these display objects without affecting the database
                     gemeinsame_beschluesse = merge_beschluesse(position_beschluesse,
-                                                    {position.id : position.vorgangsposition,
-                                                     beschluesse_dritte_beratung[0].positions_id : "3. Beratung"}, needs_copy=False)
+                                                            {position.id: position.vorgangsposition,
+                                                            beschluesse_dritte_beratung[0].positions_id: "3. Beratung"})
                     
                     text += f" Die Beschlüsse des Bundestags werden nachfolgend gemeinsam dargestellt, sofern sie in beiden Beratungen gleich lauten, andernfalls getrennt: \n\n"
                     text += "".join(parse_beschluesse(law, gemeinsame_beschluesse[k]) if gemeinsame_beschluesse[k] and k == "2. und 3. Beratung" \
@@ -528,7 +199,8 @@ def submit(law_titel):
                             for k in ["2. und 3. Beratung", "2. Beratung", "3. Beratung"])  
                     
                 else:
-                    beschluesse = merge_beschluesse(position.beschluesse) if len(position.beschluesse) > 1 else position.beschluesse
+                    beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                    beschluesse = merge_beschluesse(beschluesse) if len(beschluesse) > 1 else beschluesse
                     ai_info = text = "Die 2. Lesung im Bundestag findet statt." if position.vorgangsposition == "2. Beratung" else \
                     "Die 2. Lesung und Schlussabstimmung im Bundestag findet statt."
                     text += " Der Beschluss des Bundestags lautet: \n\n" if len(beschluesse) == 1 else \
@@ -553,7 +225,8 @@ def submit(law_titel):
                     info["marks_failure"] = True
                     text = create_link(position)
                 else:
-                    beschluesse = merge_beschluesse(position.beschluesse)
+                    beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                    beschluesse = merge_beschluesse(beschluesse)
                     ai_info = text = "Die 3. Lesung im Bundestag findet statt."
                     text += " Der Beschluss des Bundestags lautet: \n\n" if len(beschluesse) == 1 else " Die Beschlüsse des Bundestags lauten: \n\n"
                     text += parse_beschluesse(law, beschluesse)
@@ -566,7 +239,8 @@ def submit(law_titel):
 
             case "1. Durchgang": 
                 ai_info = text = "Der 1. Durchgang im Bundesrat findet statt."
-                beschluesse = merge_beschluesse(position.beschluesse)
+                beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                beschluesse = merge_beschluesse(beschluesse)
                 text += " Der Beschluss des Bundesrats lautet: \n\n" if len(beschluesse) == 1 else " Die Beschlüsse des Bundesrats lauten: \n\n"
                 text += parse_beschluesse(law, beschluesse)
 
@@ -577,7 +251,8 @@ def submit(law_titel):
                 ai_info = text = "Die Beratung und Abstimmung im Bundesrat finden statt."
                 info["vorgangsposition"] = "Abstimmung im Bundesrat"                
                 
-                beschluesse = merge_beschluesse(position.beschluesse)
+                beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                beschluesse = merge_beschluesse(beschluesse)
                 text += " Der Beschluss des Bundesrats lautet: \n\n" if len(beschluesse) == 1 else " Die Beschlüsse des Bundesrats lauten: \n\n"
                 text += parse_beschluesse(law, beschluesse)
 
@@ -609,7 +284,8 @@ def submit(law_titel):
                 ai_info = text
 
             case "BR-Sitzung": # kommt bei initiative von Land (typischerweise 2x) oder bei ini von BT/BRg (nach Anrufung d. Vermittlungsausschusses)
-                beschluesse = merge_beschluesse(position.beschluesse)
+                beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                beschluesse = merge_beschluesse(beschluesse)
                 text = "Der Bundesrat befasst sich mit dem Gesetz und beschließt:\n\n"
                 text += parse_beschluesse(law, beschluesse)
                 ai_info = "Beschlussfassung zu dem Gesetz im Bundesrat."
@@ -689,7 +365,8 @@ def submit(law_titel):
             case "Abstimmung über Vermittlungsvorschlag":
                 text = f"Im {zuordnungen[position.zuordnung]} wird über den Vermittlungsvorschlag abgestimmt. Das Abstimmungsergebnis lautet: \n\n"
                 ai_info = f"Im {zuordnungen[position.zuordnung]} wird über den Vermittlungsvorschlag abgestimmt."
-                beschluesse = merge_beschluesse(position.beschluesse)
+                beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                beschluesse = merge_beschluesse(beschluesse)
                 text += parse_beschluesse(law, beschluesse)
 
                 if not any(beschluss.beschlusstenor == "Annahme" for beschluss in beschluesse): # possibly refine with more examples?
@@ -717,17 +394,25 @@ def submit(law_titel):
     # -------------------- Phase 2: Check how far we have come ------------------- #
     # ------------------- add what remains to be done to infos ------------------- #
 
-    # No need to process remaing if law has already failed or succeeded
+    # add news summaries
+    if display:
+        offset = 0
+        for i in range(len(law.vorgangspositionen)):
+            if law.vorgangspositionen[i].summary:
+                info = {"datum": law.vorgangspositionen[i].datum.strftime("%d. %B %Y"), 
+                    "vorgangsposition": "Nachrichtenartikel",
+                    "text": law.vorgangspositionen[i].summary.summary}
+                infos.insert(i+1+offset, info)
+
+    # No need to process remaing if law has already failed or succeeded    
     for info in infos:
-        if info["marks_failure"]:
-            infos = bla(law, infos) # TODO: remove
-            return render_template("results.html", titel=law.titel, beratungsstand=beratungsstand, abstract=law_abstract, zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit, infos=infos)
+        if info.get("marks_failure", None):
+            return render_template("results.html", titel=law.titel, beratungsstand=beratungsstand, abstract=law_abstract, zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit, infos=infos) if display else infos
         
-        if info["marks_success"]:
+        if info.get("marks_success", None):
             if beratungsstand == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten":
                 info["text"] += "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
-                infos = bla(law, infos)
-                return render_template("results.html", titel=law.titel, beratungsstand=beratungsstand, abstract=law_abstract, zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit, infos=infos)
+                return render_template("results.html", titel=law.titel, beratungsstand=beratungsstand, abstract=law_abstract, zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit, infos=infos) if display else infos
 
             if law.verkuendung:
                 for verkuendung in law.verkuendung:
@@ -748,6 +433,10 @@ def submit(law_titel):
                 entscheidung_bverfg = "teilweise für nichtig erklärt" if beratungsstand == "Teile des Gesetzes für nichtig erklärt" else "f" + beratungsstand[1:]
                 info["text"] += f"\n\n<strong>Das Gesetz wurde durch das Bundesverfassungsgericht jedoch {entscheidung_bverfg}.</strong>"
 
+    if not display:
+        return infos
+    
+                
     remaining = []
     used_info_indices = set()
     for station in pfad:
@@ -775,7 +464,6 @@ def submit(law_titel):
             station["vorgangsposition"] = station["vorgangsposition"][0]
         infos.append(station)
     
-    infos = bla(law, infos)
     return render_template("results.html", titel=law.titel, beratungsstand=beratungsstand, abstract=law_abstract, zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit, infos=infos)
 
 @app.route('/autocomplete')
