@@ -109,7 +109,8 @@ def parse_law(law, display=True):
                 "has_happened": True,
                 "passed": True,
                 "marks_failure": False,
-                "marks_success": False}
+                "marks_success": False,
+                "position": position}
         if not display:
             info["datetime"] = position.datum
             info["id"] = position.id
@@ -396,13 +397,16 @@ def parse_law(law, display=True):
 
     # add news summaries
     if display:
-        offset = 0
-        for i in range(len(law.vorgangspositionen)):
-            if law.vorgangspositionen[i].summary:
-                info = {"datum": law.vorgangspositionen[i].datum.strftime("%d. %B %Y"), 
+        i = 0
+        while i < len(infos):
+            if infos[i].get("position", None) and infos[i]["position"].summary:
+                sources = "<strong>Quellen:</strong> " + ", ".join(f'<a href="{article.url}">{article.publisher}</a>' for article in infos[i]["position"].summary.articles)
+                text = f'{infos[i]["position"].summary.summary}\n\n{sources}'
+                news_info = {"datum": infos[i]["datum"], 
                     "vorgangsposition": "Nachrichtenartikel",
-                    "text": law.vorgangspositionen[i].summary.summary}
-                infos.insert(i+1+offset, info)
+                    "text": text}
+                infos.insert(i+1, news_info)
+            i += 1
 
     # No need to process remaing if law has already failed or succeeded    
     for info in infos:
@@ -435,7 +439,6 @@ def parse_law(law, display=True):
 
     if not display:
         return infos
-    
                 
     remaining = []
     used_info_indices = set()

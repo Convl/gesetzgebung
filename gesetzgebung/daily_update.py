@@ -17,6 +17,7 @@ from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
 import re
 from itertools import groupby
+import smtplib
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -31,17 +32,24 @@ LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
 SUMMARY_LENGTH = 700
 IDEAL_ARTICLE_COUNT = 5
-MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
+MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 2
 MINIMUM_ARTICLE_LENGTH = 3500
 MAXIMUM_ARTICLE_LENGTH = 20000
+NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT = 20
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AI_ENDPOINT = "https://openrouter.ai/api/v1"
-NEWS_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=3), datetime.timedelta(days=30), datetime.timedelta(days=90), datetime.timedelta(days=180)]
+NEWS_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=3), datetime.timedelta(days=30), datetime.timedelta(days=90), datetime.timedelta(days=180)] + [datetime.timedelta(days=180) * i for i in range(20)]
 QUERY_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=30), datetime.timedelta(days=180), datetime.timedelta(days=360)]
 headers = {"Authorization": "ApiKey " + DIP_API_KEY}
+no_news_found = 0
 
 def daily_update(): 
     with app.app_context():
+        # just in case daily update is launched while previous one is still active
+        if is_update_active():
+            report_error("Daily update launched while still in progress.", f"Immediately terminating new process at {datetime.datetime.now()}.", True)
+        set_update_active(True)
+        
         # ----------- Phase I: Enter new information from DIP into database ---------- #
         params =    {"f.vorgangstyp": "Gesetzgebung",
                      "f.datum.start": FIRST_DATE_TO_CHECK,
@@ -54,20 +62,13 @@ def daily_update():
                     }
 
         cursor = ""
-
-        # TODO: Just for testing, remove next 4 lines later
-        params["f.aktualisiert.start"] = "2025-02-13T13:04:08"
-        blub = db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.titel == "Gesetz zur Anpassung des Mutterschutzgesetzes und weiterer Gesetze - Anspruch auf Mutterschutzfristen nach einer Fehlgeburt (Mutterschutzanpassungsgesetz)").first()
-        if blub:
-            db.session.delete(blub)
-            db.session.commit()
         
-        response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
-        
+        response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)        
         print("Starting daily update")
         
         while response.ok and cursor != response.json().get("cursor", None):
-            for item in response.json().get("documents", []):
+            response_data = response.json()
+            for item in response_data.get("documents", []):
                 law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben() 
                 print(f"Processing Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
 
@@ -113,7 +114,7 @@ def daily_update():
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
         # --------- Phase 2: Update news articles / summaries where necessary -------- #
-        """This whole process is a bit convoluted. Essentially, the idea is:
+        """Process for updating news articles / creating summaries:
         - Check all NewsUpdateCandidates (i.e. Vorgangspositionen that haven't had a news summary added in a while, or at all)
         - If a NewsUpdateCandidate is new, it receives its first update, any older NewsUpdateCandidates belonging to the same law receive their final update and are removed from the list
         - If no new NewsUpdateCandidates were added for a given law, existing ones get updated periodically in increasing intervals
@@ -123,19 +124,21 @@ def daily_update():
         client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
         gn = GNews(language='de', country='DE')
         now = datetime.datetime.now().date()
-        # candidates = db.session.query(NewsUpdateCandidate).all()
+        
         all_candidates = (db.session.query(NewsUpdateCandidate)
-        .join(Vorgangsposition)  # Join with positions
-        .join(GesetzesVorhaben)  # Join with laws
+        .join(Vorgangsposition)  
+        .join(GesetzesVorhaben)  
         .order_by(
-            GesetzesVorhaben.id,  # First group by law
-            Vorgangsposition.datum  # Then order by position date within each group
+            GesetzesVorhaben.id,  
+            Vorgangsposition.datum  
         )
         .all())
         candidate_groups = {law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True)
                             for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)}
-
+        
+        saved_for_rollback = []
         for law_id, candidates in candidate_groups.items():
+            print(f"*** Starting news update for law with id {law_id}, update candidate ids: {[c.id for c in candidates]} ***")
             newer_exists = False
             law = get_law_by_id(law_id)
             infos = parse_law(law, display=False)
@@ -154,51 +157,48 @@ def daily_update():
                 info = next(inf for inf in infos if inf["id"] == position.id) # add a default here in case no match is found? That shouldn't be possible though
                 next_info = next(inf for inf in infos if inf["id"] == candidates[i-1].position.id) if i > 0 else dummy_info
 
+                # not due for its final update (newer_exists=False), has already been updated (next_update=True), not due for next update(next_update>now) -> skip
+                if not newer_exists and candidate.next_update and candidate.next_update > now:
+                    continue
+
+                update_queries(client, law, now)
+                if not law.queries:
+                    print(f"CRITICAL: No search queries available for law with id {law.id}, skipping.")
+                    continue
+                
+                if len(saved_for_rollback) >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT:
+                    saved_for_rollback.pop(0)
+                saved_for_rollback.append(SavedNewsUpdateCandidate(candidate))
+
+                update_news(client, gn, position, [info] + [next_info], law.queries, saved_for_rollback, law)
+
                 if newer_exists:
-                    update_queries(client, law, now)
-                    update_news(client, gn, position, [info] + [next_info], law.queries, law)
                     db.session.delete(candidate)
                 elif not candidate.next_update or candidate.next_update <= now:
                     if not candidate.next_update:
                         newer_exists = True  
-                    update_queries(client, law, now)
-                    update_news(client, gn, position, [info] + [next_info], law.queries, law)
                     candidate.last_update = now
-                    candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
+                    # simpler version to replace 3 lines below, but does not handle initial runs with historical data well: candidate.next_update = (now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)])
+                    offset = 0
+                    while position.datum + NEWS_UPDATE_INTERVALS[offset] < now and offset < len(NEWS_UPDATE_INTERVALS) - 1:
+                        offset += 1
+                    candidate.next_update = position.datum + NEWS_UPDATE_INTERVALS[offset]
                     candidate.update_count += 1
                 db.session.commit()
-
-                # if candidate.next_update and candidate.next_update <= now:
-                #     add_news(client, gn, position, info + dummy_info, queries, law, False)
-                #     candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
-                #     candidate.update_count += 1
-                # elif not candidate.next_update: # if candidate is newly added, we must first perform a final update for the prior candidate(s) and remove them from the update candidates list
-                #     prior_candidates = (db.session.query(NewsUpdateCandidate).join(Vorgangsposition).filter(
-                #         Vorgangsposition.vorgangs_id == position.vorgangs_id, Vorgangsposition.id != position.id).all())
-                #     prior_candidates.sort(key=lambda c:c.position.datum)
-                    
-                #     # there should usually only be 1 prior candidate at most, but there might be more in some edge cases
-                #     for i, prior_candidate in enumerate(prior_candidates):
-                #         prior_position = prior_candidate.position
-                #         prior_info = next(info for info in infos if info["id"] == prior_position.id) # add a default here in case no match is found? That shouldn't be possible though
-                #         next_info = next(info for info in infos if info["id"] == prior_candidates[i+1].position.id) if i < len(prior_candidates) - 1 else info
-                #         add_news(client, gn, prior_position, prior_info + next_info, queries, law, False)
-                #         db.session.delete(prior_candidate)
-
-                #     add_news(client, gn, position, info + dummy_info, queries, law, False)
-                #     candidate.next_update = now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)]
-                #     candidate.update_count += 1
+        
+        set_update_active(False)
 
 def update_queries(client, law, now):
     # If queries haven't been updated in a while / at all, update them now
     last_updated = law.queries_last_updated or datetime.date(1900, 1, 1)
     if now - last_updated > QUERY_UPDATE_INTERVALS[min(law.query_update_counter, len(QUERY_UPDATE_INTERVALS) - 1)]:
         law.queries = generate_search_queries(client, law)
-        law.queries_last_updated = now
-        law.query_update_counter += 1
+        if law.queries: 
+            law.queries_last_updated = now
+            law.query_update_counter += 1
 
-def update_news(client, gn, position, infos, queries, law=None):
-    news_info = get_news(client, gn, infos, law, queries, position)
+def update_news(client, gn, position, infos, queries, saved_candidates, law=None):
+    news_info = get_news(client, gn, infos, law, queries, position, saved_candidates)
     
     if not news_info["zusammenfassung"]:
         return
@@ -360,7 +360,9 @@ def update_ueberweisungen(position, ueberweisungen):
         ueberweisung.position = position
         db.session.add(ueberweisung)
 
-def get_news(client, gn, infos, law, queries, position):
+def get_news(client, gn, infos, law, queries, position, saved_candidates):
+    global no_news_found # prefer this over passing it around between a bunch of functions that mostly don't need it
+
     start_date = infos[0]["datetime"]
     end_date = infos[1]["datetime"]
     news_info = {"start": infos[0]['ai_info'], "end": infos[1]["ai_info"], "artikel": [], "article_data": [], "relevant_hits": 0, "zusammenfassung": None}
@@ -368,17 +370,24 @@ def get_news(client, gn, infos, law, queries, position):
     gn.start_date = (start_date.year, start_date.month, start_date.day)
     gn.end_date = (end_date.year, end_date.month, end_date.day)
 
+    print(f"retrieving news from {news_info['start']} to {news_info['end']}")
     for query in queries:
-        # if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
-        #     break
-        
+        time.sleep(1)
+
+        # If no news have been found for a while, check if it is just a coincidence, or if gnews is blocking us
+        if no_news_found >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT:
+            consider_rollback(saved_candidates)
+
         try:
             if not (gnews_response := gn.get_news(query)):
+                no_news_found += 1
                 raise Exception("did not get a response from gnews")
         except Exception as e:
-            print(f"Error fetching news from gnews for query: {query}\nError: {e}\nstart date: {gn.start_date}\nend date: {gn.end_date}")
+            print(f"Error fetching news from gnews for query: {query}. Error: {e}. Start date: {gn.start_date}. End date: {gn.end_date}")
             continue
-
+        
+        no_news_found = 0
+        print(f"found {len(gnews_response)} articles for query: {query}")
         try:
             evaluate_results_schema = {
                 "name": "Artikel_Schema",
@@ -432,11 +441,25 @@ def get_news(client, gn, infos, law, queries, position):
                     gnews_response.pop(i)
 
         except Exception as e:
-            print(f"Error evaluating search results: {e}\nAI Response: {ai_response}")
+            print(f"Error evaluating search results: {e}")
             continue
 
+        # The current calculation of total relevant hits may skew results, because it does not account for duplicates in the search results
+        # A better approach may be to declare a set of total_relevant_hits before we loop through the queries, then do:
+        # total_relevant_hits.add(relevant_hit["url"] for relevant_hit in gnews_response) 
+        # news_info["relevant_hits"] = len(total_relevant_hits)
+        # However, that may also skew results, because a high duplicate count may be down to queries being more similar for one law than another,
+        # which is not necessarily indicative of the true number of relevant articles for the laws, particularly as gnews will return at most 100 results per query.
+        # Another approach would be to only count relevant hits of the best query:
+        # news_info["relevant_hits"] = max(news_info["relevant_hits"], len(gnews_response))
+        # That might be the way to go, but I am leaving it as is for now, because I only discovered this issue after processing 598 / 753 laws
+        # If I change it now, the results for the relevant hit count for the remaining laws will be skewed as compared to the first 598
+        # Re-processing all laws would be too expensive in terms of time and compute for now.
+        # Leaving this comment in as a mental note in case I do decide to re-process all laws at some point though.
+
         news_info["relevant_hits"] += len(gnews_response)
-            
+        print(f"found {len(gnews_response)} relevant titles for query: {query}")
+
         for article in gnews_response:
             if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
                 break
@@ -451,6 +474,10 @@ def get_news(client, gn, infos, law, queries, position):
             except Exception as e:
                 print(f"Unknown Error {e} while decoding URL of {article}")
                 continue 
+            
+            # this check has only been added after law 598, see above
+            if any(article["url"] == existing_article["url"] for existing_article in news_info["article_data"]):
+                continue
 
             try:
                 news_article = newspaper.article(article["url"], language='de')
@@ -461,18 +488,17 @@ def get_news(client, gn, infos, law, queries, position):
                 continue
 
             if not news_article.is_valid_body() or len(news_article.text) < MINIMUM_ARTICLE_LENGTH or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH:
-                print(f"Article too long or too short at {len(news_article.text)} characters.")
                 continue
             
             # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
             if not news_article.publish_date or news_article.publish_date.date() >= end_date:
-                print(f"News article {news_article.title} ignored due to invalid publish date")
                 continue
 
             news_info["artikel"].append(news_article.text)
             news_info["article_data"].append(article)
 
     if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
+        print(f"Only found {len(news_info['artikel'])} articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
         return news_info
 
     # if a summary already exists
@@ -480,9 +506,11 @@ def get_news(client, gn, infos, law, queries, position):
         # ...no need to make a new one if the old one was based on a sufficient number of articles and we haven't seen at least a 1.5x increase in article count since then
         if news_info["relevant_hits"] > position.summary.articles_found >= IDEAL_ARTICLE_COUNT:
             if news_info["relevant_hits"] < position.summary.articles_found * 1.5:
+                print(f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed.")
                 return news_info
         # ...obviously, don't make a new one if we haven't seen an increase in article count at all, either
         elif news_info["relevant_hits"] <= position.summary.articles_found:
+            print("Did not find more articles this time than last time, no update needed.")
             return news_info
         # ...or if the actual articles that the summary was based on then, and would be based on now, are identical
         # (that would be unfortunate, though: If the article count has increased substantially, 
@@ -491,6 +519,7 @@ def get_news(client, gn, infos, law, queries, position):
         # For now, though, I trust that Google News orders its results such that new articles containing new developments will be amongst the first
         # to get processed, and therefore end up in the selection of articles for the new summary.)
         if all(any(new_article["url"] == existing_article.url for existing_article in position.summary.articles) for new_article in news_info["article_data"]):
+            print("Old and new articles identical, no need to update")
             return news_info    
 
     generate_summary_messages = [
@@ -508,12 +537,13 @@ def get_news(client, gn, infos, law, queries, position):
             
             PHASE 2:
             Wenn du entschieden hast, ob und gegebenenfalls welche Nachrichtenartikel du ignorieren musst, sollst du eine Zusammenfassung der wichtigsten und interessantesten Inhalte der übrigen Nachrichtenartikel erstellen.
+            Falls einzelne Nachrichtenartikel von mehreren, unterschiedlichen Gesetzen handeln, solltest du nur diejenigen Inhalte in die Zusammenfassung aufnehmen, die sich auf das Gesetz mit dem amtlichen Titel {law.titel} beziehen.
             Wichtige / interessante nachrichtliche Inhalte sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen oder Verbänden sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. 
             Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese sollte in die Zusammenfassung nur aufgenommen werden, wenn sich aus den Nachrichtenartikeln nichts anderes, interessantes ergibt.            
             Einleitende Formulierungen wie "Im ersten Zeitraum" oder "In diesem Zeitraum" am Anfang der Zusammenfassung sollst du vermeiden. Du sollst aber auf das Ereignis Bezug nehmen, das den Start des jeweiligen Zeitraums markiert, sofern es in den Nachrichtenartikeln eine Rolle gespielt hat. 
             Die Zusammenfassung muss mindestens {SUMMARY_LENGTH - 100} und darf höchstens {SUMMARY_LENGTH + 100} Zeichen lang sein.
             Deine Zusammenfassung soll im Präsens verfasst sein. 
-            Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. 
+            Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. Sie darf keine weiteren Informationen enthalten, nicht einmal eine einleitende Überschrift wie zum Beispiel "Zusammenfassung:". 
             """,
             "role": "system"
         },
@@ -525,9 +555,45 @@ def get_news(client, gn, infos, law, queries, position):
 
     if not (ai_response := get_text_data_from_ai(client, generate_summary_messages)):
         print(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
+        return news_info
     
     news_info["zusammenfassung"] = ai_response
+    print(f"generated summary based on {len(news_info["artikel"])} news articles")
     return news_info
+
+def consider_rollback(saved_candidates):
+    # helper function to check if gnews has become unresponsive, and roll back news update candidates if so
+    global no_news_found 
+
+    try:
+        test_gn = GNews(language='de', country='DE')
+        test_gn.start_date(2024, 1, 1)
+        test_gn.end_date(2025, 1, 1)
+        test_query = test_gn.get_news("Selbstbestimmungsgesetz")
+        test_result_count = len(test_query)
+    except Exception as e:
+        test_result_count = 0
+
+    if test_result_count < 100:
+        error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT} queries in a row, test query only returned {test_result_count} results.\n"
+        try:
+            for original in saved_candidates:
+                candidate = original.candidate or NewsUpdateCandidate()
+                candidate.last_update = original.last_update
+                candidate.next_update = original.next_update
+                candidate.update_count = original.update_count
+                candidate.position = original.position
+            db.session.commit()
+            error_message += f"Successfully rolled back {len(saved_candidates)} news update candidates. No further action is required\n"
+        except Exception as e:
+            error_message += f"Error rolling back news update candidates: {e}\nManual rollback required\n"
+        finally:
+            error_message += "Affected candidates:\n"
+            error_message += "\n".join(f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" for original in saved_candidates)
+            error_message += f"\nExiting daily update at {datetime.datetime.now()}"
+            report_error("Google News is unresponsive", error_message, True)
+    else:
+        no_news_found = 0
 
 def generate_search_queries(client, law):
     shorthand = extract_shorthand(law.titel) if law.titel.endswith(")") else ""
@@ -576,7 +642,7 @@ def generate_search_queries(client, law):
         queries = [query for query in ai_response if query]
 
     except Exception as e:
-        print(f"Error generating search query.\nError: {e}\nAI response: {ai_response}")
+        print(f"Error generating search query. Error: {e}. AI response: {ai_response}.")
         return None
     
     if shorthand and shorthand not in queries:
@@ -585,63 +651,69 @@ def generate_search_queries(client, law):
     return queries
 
 def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
-    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+    # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+    models = ['deepseek/deepseek-r1']
+    delay = 1
 
-    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
-    for i, model in enumerate(models):
-        response = client.chat.completions.create(model=model,
-                                                    extra_body={
-                                                        'models': models[i+1:],
-                                                        'provider': {'require_parameters': True,
-                                                                        'sort': 'throughput'},
-                                                        'temperature': 0.5},
-                                                        messages=messages, 
-                                                        response_format={'type': 'json_schema', 
-                                                                        'json_schema': schema})
-        if response.choices:
-            break
-
-    if not response.choices or not response.choices[0].message.content:
-        print(f"Error getting response from AI with messages: {messages}")
-        return None
-    
-    ai_response = response.choices[0].message.content
-    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
-    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
-    
-    try:
-        ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
-        return ai_response
-    except Exception as e:
-        print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}")
-        return None
+    for retry in range(10):
+        # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+        for i, model in enumerate(models):
+            response = client.chat.completions.create(model=model,
+                                                        extra_body={
+                                                            'models': models[i+1:],
+                                                            'provider': {'require_parameters': True,
+                                                                            'sort': 'throughput'},
+                                                            'temperature': 0.5},
+                                                            messages=messages, 
+                                                            response_format={'type': 'json_schema', 
+                                                                            'json_schema': schema})
+            if response.choices:
+                break
+        
+        try:
+            ai_response = response.choices[0].message.content
+            ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+            ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+            ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
+            return ai_response
+        
+        except Exception as e:
+            print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
+            time.sleep(delay)
+            delay *= 2
         
 
 def get_text_data_from_ai(client, messages):
-    models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+    # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
+    models = ['deepseek/deepseek-r1']
+    delay = 1
+
+    for retry in range(10):
+        # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+        for i, model in enumerate(models):
+            response = client.chat.completions.create(model=model, 
+                                                        extra_body={
+                                                            'models': models[i+1:],
+                                                            'provider': {'sort': 'throughput'},
+                                                            'temperature': 0.5},
+                                                            messages=messages)
+            if response.choices:
+                break
+
+        try:
+            ai_response = response.choices[0].message.content
+            # this shouldn't be necessary, but just in case
+            ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+            ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+            return ai_response
+        
+        except Exception as e:
+            print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
+            time.sleep(delay)
+            delay *= 2
+
     
-    # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
-    for i, model in enumerate(models):
-        response = client.chat.completions.create(model=model, 
-                                                    extra_body={
-                                                        'models': models[i+1:],
-                                                        'provider': {'sort': 'throughput'},
-                                                        'temperature': 0.5},
-                                                        messages=messages)
-        if response.choices:
-            break
-
-    if not response.choices or not response.choices[0].message.content:
-        print(f"Error getting response from AI with messages: {messages}")
-        return None
-
-    ai_response = response.choices[0].message.content
-
-    # this shouldn't be necessary, but just in case
-    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
-    ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
-    return ai_response
-
+    
 def extract_shorthand(titel):
     # Extract the shorthand (not the abbreviation) from the title of a law, if there is one
     parentheses_start = max(6, titel.rfind("(")) # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
@@ -667,6 +739,26 @@ def update_law_in_es(law):
         'titel': law.titel,
         'abstract': law.abstract
     })
+
+def report_error(subject, message, terminate=False):
+    print(f"{subject}\n{message}")
+
+    ERROR_MAIL_PASSWORD = os.environ.get("ERROR_MAIL_PASSWORD")
+    ERROR_MAIL_ADDRESS = os.environ.get("ERROR_MAIL_ADDRESS")
+    ERROR_MAIL_SMTP = "smtp.gmail.com"
+    DEVELOPER_MAIL_ADDRESS = os.environ.get("DEVELOPER_MAIL_ADDRESS")
+    try:
+        with smtplib.SMTP(ERROR_MAIL_SMTP) as connection:
+            connection.starttls()
+            connection.login(ERROR_MAIL_ADDRESS, ERROR_MAIL_PASSWORD)
+            connection.sendmail(ERROR_MAIL_ADDRESS, DEVELOPER_MAIL_ADDRESS, f"Subject: {subject}\n\n{message}")
+            connection.close()
+    except Exception as e:
+        print(f"CRITICAL: Failed to report critical error via email. Error: {e}. Message: {subject}\n{message}")
+
+    if terminate:
+        set_update_active(False)
+        os._exit(1)
 
 if __name__ == "__main__":
     daily_update()

@@ -79,7 +79,7 @@ class NewsSummary(db.Model):
     position = db.relationship('Vorgangsposition', back_populates='summary', lazy=False)
 
 class NewsUpdateCandidate(db.Model):
-    __tablename__ = 'news_update_candidate'
+    __tablename__ = 'news_update_candidates'
 
     id = db.Column(db.Integer, primary_key=True)
     last_update = db.Column(db.Date, nullable=True)
@@ -87,6 +87,16 @@ class NewsUpdateCandidate(db.Model):
     update_count = db.Column(db.Integer, nullable=True, default=0)
     positions_id = db.Column(db.Integer, db.ForeignKey('positionen.id'), nullable=False)
     position = db.relationship('Vorgangsposition', back_populates='update_candidate', lazy=False)
+
+class SavedNewsUpdateCandidate:  # not an actual database class, used to roll back changes in case of gnews error
+    def __init__(self, candidate):
+        self.id = candidate.id or None
+        self.last_update = candidate.last_update or None
+        self.next_update = candidate.next_update or None
+        self.update_count = candidate.update_count or None
+        self.positions_id = candidate.positions_id or None
+        self.position = candidate.position or None
+        self.candidate = candidate or None
 
 class Vorgangsposition(db.Model):
     __tablename__ = 'positionen'
@@ -190,4 +200,19 @@ def set_last_update(update):
     else:
         last_update = AppMetadata(key="last_update", value=update)
         db.session.add(last_update)
+    db.session.commit()
+
+def is_update_active():
+    if (update_status := db.session.query(AppMetadata).filter_by(key='update_active').one_or_none()):
+        return update_status.value == 'True'
+    else:
+        return False
+    
+def set_update_active(status):
+    status = 'True' if status else 'False'
+    if (update_status := db.session.query(AppMetadata).filter_by(key='update_active').one_or_none()):
+        update_status.value = status
+    else:
+        update_status = AppMetadata(key="update_active", value=status)
+        db.session.add(update_status)
     db.session.commit()
