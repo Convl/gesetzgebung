@@ -10,3 +10,4 @@ SQLAlchemy==2.0.36
 gunicorn==23.0.0
 newspaper4k==0.9.3.1
 numpy<2
+lxml_html_clean==0.4.1
