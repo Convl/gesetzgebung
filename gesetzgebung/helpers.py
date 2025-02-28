@@ -182,7 +182,7 @@ def parse_beschluesse(law, beschluesse:List[Beschlussfassung]) -> str:#
                         drucksachetyp = "Dokument"
                     
                     anmerkung = beschluss.abstimm_ergebnis_bemerkung if beschluss.abstimm_ergebnis_bemerkung and beschluss.abstimm_ergebnis_bemerkung.startswith(", Anmerkung") \
-                    else f", Anmerkung: {beschluss.abstimm_ergebnis_bemerkung}" if beschluss.abstimm_ergebnis_bemerkung else ""
+                    else f", Stimmen(pro/contra/Enthaltung): {beschluss.abstimm_ergebnis_bemerkung}" if beschluss.abstimm_ergebnis_bemerkung else ""
 
                     text += f' <a href="{pdf_url}">{drucksachetyp}</a> (Urheber: {", ".join(urh for urh in urheber)}, Dokumentnummer: {dokumentnummer}{anmerkung})' \
                     if len(dokumentnummern) == 1 else \

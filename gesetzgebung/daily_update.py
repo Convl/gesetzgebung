@@ -498,7 +498,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
             news_info["article_data"].append(article)
 
     if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
-        print(f"Only found {len(news_info['artikel'])} articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
+        print(f"Only found {len(news_info['artikel'])} usable articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
         return news_info
 
     # if a summary already exists
@@ -578,7 +578,7 @@ def consider_rollback(saved_candidates):
         error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT} queries in a row, test query only returned {test_result_count} results.\n"
         try:
             for original in saved_candidates:
-                candidate = original.candidate or NewsUpdateCandidate()
+                candidate = db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none() or NewsUpdateCandidate()
                 candidate.last_update = original.last_update
                 candidate.next_update = original.next_update
                 candidate.update_count = original.update_count
@@ -655,7 +655,7 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
     models = ['deepseek/deepseek-r1']
     delay = 1
 
-    for retry in range(10):
+    for retry in range(13):
         # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
         for i, model in enumerate(models):
             response = client.chat.completions.create(model=model,
@@ -681,6 +681,8 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
             print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
             time.sleep(delay)
             delay *= 2
+    
+    report_error("Error getting structured data from AI", f"Could not get structured data from AI. Time: {datetime.datetime.now()}, Messages: {messages}. Schema: {schema}. Subfield: {subfield}.", True)
         
 
 def get_text_data_from_ai(client, messages):
@@ -688,7 +690,7 @@ def get_text_data_from_ai(client, messages):
     models = ['deepseek/deepseek-r1']
     delay = 1
 
-    for retry in range(10):
+    for retry in range(13):
         # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
         for i, model in enumerate(models):
             response = client.chat.completions.create(model=model, 
@@ -712,6 +714,7 @@ def get_text_data_from_ai(client, messages):
             time.sleep(delay)
             delay *= 2
 
+    report_error("Error getting structured data from AI", f"Could not get text data from AI. Time: {datetime.datetime.now()}, Messages: {messages}.", True)
     
     
 def extract_shorthand(titel):

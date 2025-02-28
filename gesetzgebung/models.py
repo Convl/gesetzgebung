@@ -96,7 +96,6 @@ class SavedNewsUpdateCandidate:  # not an actual database class, used to roll ba
         self.update_count = candidate.update_count or None
         self.positions_id = candidate.positions_id or None
         self.position = candidate.position or None
-        self.candidate = candidate or None
 
 class Vorgangsposition(db.Model):
     __tablename__ = 'positionen'

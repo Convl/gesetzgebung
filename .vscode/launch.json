@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/run_update.py",
+            "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         }

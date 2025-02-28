@@ -35,6 +35,17 @@
                                  <p>{{ info.link | safe }}</p>
                               </div>
                            </li>
+                        {% elif info.vorgangsposition == "Nachrichtenartikel" %}
+                           <li>
+                              <div class="future_timeline_content">
+                                 <span>{{ info.datum }} - {{ info.next_date }}</span>
+                                 <h4>In den Medien</h4>
+                                 <div class="inner-list">
+                                    {{ info.text | replace('\n', '<br>') | safe }}
+                                 </div>
+                                 <p>{{ info.link | safe }}</p>
+                              </div>
+                           </li>
                         {% else %}
                            <li>
                               <div class="future_timeline_content">

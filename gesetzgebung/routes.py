@@ -103,6 +103,7 @@ def parse_law(law, display=True):
             continue
             
         info = {"datum": position.datum.strftime("%d. %B %Y"),
+                "datetime" : position.datum,
                 "vorgangsposition": position.vorgangsposition,
                 "link": f'<a href="{position.fundstelle.pdf_url}">Originaldokument</a>',
                 "ai_info": "",
@@ -112,7 +113,6 @@ def parse_law(law, display=True):
                 "marks_success": False,
                 "position": position}
         if not display:
-            info["datetime"] = position.datum
             info["id"] = position.id
 
         for nachtrag in nachtraege:
@@ -402,9 +402,17 @@ def parse_law(law, display=True):
             if infos[i].get("position", None) and infos[i]["position"].summary:
                 sources = "<strong>Quellen:</strong> " + ", ".join(f'<a href="{article.url}">{article.publisher}</a>' for article in infos[i]["position"].summary.articles)
                 text = f'{infos[i]["position"].summary.summary}\n\n{sources}'
-                news_info = {"datum": infos[i]["datum"], 
-                    "vorgangsposition": "Nachrichtenartikel",
-                    "text": text}
+                
+                if i+1 < len(infos):
+                    fstring = "%d. %B %Y" if infos[i]["datetime"].year != infos[i+1]["datetime"].year else "%d. %B" if infos[i]["datetime"].month != infos[i+1]["datetime"].month else "%d."
+                    date = infos[i]["datetime"].strftime(fstring)
+                else:
+                    date = infos[i]["datum"]
+                    
+                news_info = {"datum": date, 
+                             "next_date": infos[i+1]["datum"] if i+1 < len(infos) else "Gegenwart",
+                             "vorgangsposition": "Nachrichtenartikel",
+                             "text": text}
                 infos.insert(i+1, news_info)
             i += 1
 
