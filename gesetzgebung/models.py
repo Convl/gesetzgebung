@@ -63,7 +63,7 @@ class NewsArticle(db.Model):
     description = db.Column(db.Text, nullable=True)
     published_date = db.Column(db.Text, nullable=True)
     url = db.Column(db.Text, nullable=True)
-    publisher = db.Column(db.Text, nullable=True) # in ["publisher"]["title"]
+    publisher = db.Column(db.Text, nullable=True) 
     summary_id = db.Column(db.Integer, db.ForeignKey('summaries.id'), nullable=False)
     summary = db.relationship('NewsSummary', back_populates='articles', lazy=False)
 
@@ -133,7 +133,7 @@ class Verkuendung(db.Model):
     fundstelle = db.Column(db.String(250), nullable=True)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey('vorhaben.id'), nullable=False)
-    vorhaben = db.relationship('GesetzesVorhaben', back_populates='verkuendung', lazy=False) # TODO rename these, always to the form of verkuendung_vorhaben
+    vorhaben = db.relationship('GesetzesVorhaben', back_populates='verkuendung', lazy=False)
 
 class Inkrafttreten(db.Model):
     __tablename__ = 'inkrafttreten'
@@ -184,7 +184,6 @@ def get_law_by_id(id) -> GesetzesVorhaben:
 def get_law_by_dip_id(id) -> GesetzesVorhaben:
     id = int(id)
     return db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.dip_id == id).one_or_none()
-
 
 def get_position_by_dip_id(id) -> Vorgangsposition:
     id = int(id)
