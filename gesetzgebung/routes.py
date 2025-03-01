@@ -494,5 +494,6 @@ def autocomplete():
                              },
                              'size': 10
                          })
+    
     suggestions = [{'id': hit['_id'], 'titel': hit['_source']['titel']} for hit in response['hits']['hits']]
     return jsonify(suggestions)

@@ -35,7 +35,7 @@ function showSuggestions(suggestions) {
 
 function selectSuggestion(suggestion) {
     document.getElementById('suggestions').innerHTML = ''; // Hide suggestions after selection
-    document.getElementById('suggestions').classList.remove('active');  // Hide suggestions after selection
+    document.getElementById('suggestions').classList.remove('active'); 
     handleSubmit(suggestion.titel, suggestion.id);
 }
 
@@ -55,7 +55,7 @@ function handleFormSubmit(event) {
             })
             .catch(error => {
                 console.error('Error fetching suggestions:', error);
-                handleSubmit(titel, NaN); // Handle gracefully in case of an error
+                handleSubmit(titel, NaN); 
             });
     } else {
         handleSubmit(titel, id);

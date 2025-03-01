@@ -345,7 +345,6 @@ def update_fundstelle(position, dip_fundstelle):
     db.session.add(fundstelle)
 
 def update_ueberweisungen(position, ueberweisungen):
-    # position.ueberweisungen.clear()
     existing_ueberweisungen = db.session.query(Ueberweisung).filter_by(positions_id=position.id).all()
     if existing_ueberweisungen:
         for ueberweisung in existing_ueberweisungen:
