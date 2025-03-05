@@ -43,6 +43,7 @@ QUERY_UPDATE_INTERVALS = [datetime.timedelta(days=1), datetime.timedelta(days=30
 headers = {"Authorization": "ApiKey " + DIP_API_KEY}
 no_news_found = 0
 
+
 def daily_update(): 
     with app.app_context():
         # just in case daily update is launched while previous one is still active
@@ -182,7 +183,7 @@ def daily_update():
                     offset = 0
                     while position.datum + NEWS_UPDATE_INTERVALS[offset] < now and offset < len(NEWS_UPDATE_INTERVALS) - 1:
                         offset += 1
-                    candidate.next_update = position.datum + NEWS_UPDATE_INTERVALS[offset]
+                    candidate.next_update = now + NEWS_UPDATE_INTERVALS[offset]
                     candidate.update_count += 1
                 db.session.commit()
         
@@ -373,8 +374,9 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
     for query in queries:
         time.sleep(1)
 
-        # If no news have been found for a while, check if it is just a coincidence, or if gnews is blocking us
-        if no_news_found >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT:
+        # If no news have been found for a while, check if it is just a coincidence, or if gnews is blocking us.
+        # Using NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT * 3 to be on the safe side, though some laws likely had 4 candidates. 
+        if no_news_found >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT * 3:
             consider_rollback(saved_candidates)
 
         try:
@@ -443,20 +445,10 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
             print(f"Error evaluating search results: {e}")
             continue
 
-        # The current calculation of total relevant hits may skew results, because it does not account for duplicates in the search results
-        # A better approach may be to declare a set of total_relevant_hits before we loop through the queries, then do:
-        # total_relevant_hits.add(relevant_hit["url"] for relevant_hit in gnews_response) 
-        # news_info["relevant_hits"] = len(total_relevant_hits)
-        # However, that may also skew results, because a high duplicate count may be down to queries being more similar for one law than another,
-        # which is not necessarily indicative of the true number of relevant articles for the laws, particularly as gnews will return at most 100 results per query.
-        # Another approach would be to only count relevant hits of the best query:
-        # news_info["relevant_hits"] = max(news_info["relevant_hits"], len(gnews_response))
-        # That might be the way to go, but I am leaving it as is for now, because I only discovered this issue after processing 598 / 753 laws
-        # If I change it now, the results for the relevant hit count for the remaining laws will be skewed as compared to the first 598
-        # Re-processing all laws would be too expensive in terms of time and compute for now.
-        # Leaving this comment in as a mental note in case I do decide to re-process all laws at some point though.
-
-        news_info["relevant_hits"] += len(gnews_response)
+        # Decided to count the relevant hits for the most succesful query only, as this likely skews the results less than the alternatives. Ultimately,
+        # all methods are imperfect, since we are limited to 100 results from gnews. Possibly change this in the future to scrape the total result count
+        # from a google news web search directly, provided we have a query that yields no / acceptably few false positives. 
+        news_info["relevant_hits"] = max(news_info["relevant_hits"], len(gnews_response))
         print(f"found {len(gnews_response)} relevant titles for query: {query}")
 
         for article in gnews_response:
@@ -564,24 +556,40 @@ def consider_rollback(saved_candidates):
     # helper function to check if gnews has become unresponsive, and roll back news update candidates if so
     global no_news_found 
 
-    try:
-        test_gn = GNews(language='de', country='DE')
-        test_gn.start_date(2024, 1, 1)
-        test_gn.end_date(2025, 1, 1)
-        test_query = test_gn.get_news("Selbstbestimmungsgesetz")
-        test_result_count = len(test_query)
-    except Exception as e:
-        test_result_count = 0
+    test_result_count = 0
+    delay = 64
+
+    for retry in range(7):
+        try:
+            test_gn = GNews(language='de', country='DE')
+            test_gn.start_date(2024, 1, 1)
+            test_gn.end_date(2025, 1, 1)
+            test_query = test_gn.get_news("Selbstbestimmungsgesetz")
+            test_result_count = len(test_query)
+        except Exception as e:
+            test_result_count = 0
+        
+        if test_result_count >= 100:
+            break
+
+        delay *= 2
+        
+        print(f"Google News is unresponsive, retrying in {delay} seconds.")
+        time.sleep(delay)
+        
 
     if test_result_count < 100:
-        error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT} queries in a row, test query only returned {test_result_count} results.\n"
+        error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT * 3} queries in a row, test query only returned {test_result_count} results.\n"
         try:
             for original in saved_candidates:
-                candidate = db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none() or NewsUpdateCandidate()
+                got_deleted = (candidate := db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none()) is None
+                candidate = candidate or NewsUpdateCandidate()
                 candidate.last_update = original.last_update
                 candidate.next_update = original.next_update
                 candidate.update_count = original.update_count
                 candidate.position = original.position
+                if got_deleted:
+                    db.session.add(candidate)
             db.session.commit()
             error_message += f"Successfully rolled back {len(saved_candidates)} news update candidates. No further action is required\n"
         except Exception as e:
@@ -670,7 +678,7 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None):
                 break
         
         try:
-            ai_response = response.choices[0].message.content
+            ai_response = response.choices[0].message.content or response.choices[0].message.model_extra["reasoning"]
             ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
             ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
             ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)

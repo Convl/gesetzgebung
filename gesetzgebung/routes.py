@@ -63,6 +63,7 @@ def query_from_spacy(titel, nlp):
 def index():
     return render_template("index.html")
 
+
 @app.route('/submit/<law_titel>', methods=["GET"])
 def submit(law_titel):
 
@@ -70,10 +71,10 @@ def submit(law_titel):
     if not law_id or not (law := get_law_by_id(law_id)):
         return render_template("error.html")
     return parse_law(law)
+                    
 
 def parse_law(law, display=True):
     # ------------------ Phase 0: Gather preliminary information ----------------- #
-
     nachtraege = db.session.execute(db.select(Vorgangsposition.vorgangsposition, Fundstelle.pdf_url).filter(
     Fundstelle.positions_id == Vorgangsposition.id, Vorgangsposition.vorgangs_id == law.id,
     Vorgangsposition.nachtrag == True)).all()
