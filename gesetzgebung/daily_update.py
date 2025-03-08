@@ -18,7 +18,7 @@ from googlenewsdecoder import gnewsdecoder
 import re
 from itertools import groupby
 import smtplib
-import swiftshadow
+
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
