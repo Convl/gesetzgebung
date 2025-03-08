@@ -18,6 +18,7 @@ from googlenewsdecoder import gnewsdecoder
 import re
 from itertools import groupby
 import smtplib
+import swiftshadow
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '.env'))
@@ -554,16 +555,18 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
 
 def consider_rollback(saved_candidates):
     # helper function to check if gnews has become unresponsive, and roll back news update candidates if so
+    # TODO: this logic needs a rework. It's not good enough to just save a fixed number of update candidates. Have to make sure
+    # that if there are X update candidates for a given law, all (or none) of them are rolled back.
     global no_news_found 
 
     test_result_count = 0
     delay = 64
 
-    for retry in range(7):
+    for retry in range(8):
         try:
             test_gn = GNews(language='de', country='DE')
-            test_gn.start_date(2024, 1, 1)
-            test_gn.end_date(2025, 1, 1)
+            test_gn.start_date = (2024, 1, 1)
+            test_gn.end_date = (2025, 1, 1)
             test_query = test_gn.get_news("Selbstbestimmungsgesetz")
             test_result_count = len(test_query)
         except Exception as e:

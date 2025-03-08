@@ -93,7 +93,7 @@ class SavedNewsUpdateCandidate:  # not an actual database class, used to roll ba
         self.id = candidate.id or None
         self.last_update = candidate.last_update or None
         self.next_update = candidate.next_update or None
-        self.update_count = candidate.update_count or None
+        self.update_count = candidate.update_count or 0
         self.positions_id = candidate.positions_id or None
         self.position = candidate.position or None
 

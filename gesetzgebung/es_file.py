@@ -7,7 +7,7 @@ from urllib3.exceptions import InsecureRequestWarning
 warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 ES_HOST = os.environ.get("ES_HOST") or os.environ.get("LOCAL_ES_HOST")
-ES_LAWS_INDEX = "laws_index_v2"
+ES_LAWS_INDEX = os.environ.get("ES_LAWS_INDEX") or os.environ.get("LOCAL_ES_LAWS_INDEX")
 
 index_body = {
   "settings": {
