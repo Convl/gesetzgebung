@@ -8,15 +8,32 @@
 				<div class="col-xl-12 mx-auto text-center">
 					<div class="section-title">
 						<h4>{{ titel }}</h4>
-                  <p><strong>Beratungsstand: </strong>{{ beratungsstand | safe }}</p>
-                  <p>
-                     <strong>Zustimmungsbeduerftigkeit: </strong>
-                     {% for z in zustimmungsbeduerftigkeit %}
-                        <br> 
-                        {{ z | safe}} 
-                     {% endfor %}
-                  </p>
-						<p><strong>Abstract: </strong>{{ abstract | safe}}</p>
+                        <button class="btn btn-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#metadataCollapse" aria-expanded="false" aria-controls="metadataCollapse">
+                           Basisinformationen anzeigen
+                        </button>
+                        <div class="collapse" id="metadataCollapse">
+                            <div class="card card-body mb-3">
+                                <p><strong>Beratungsstand: </strong>{{ beratungsstand | safe }}</p>
+                                <p>
+                                    <strong>Zustimmungsbeduerftigkeit: </strong>
+                                    {% for z in zustimmungsbeduerftigkeit %}
+                                        <br> 
+                                        {{ z | safe}} 
+                                    {% endfor %}
+                                </p>
+                                <p><strong>Abstract: </strong>{{ abstract | safe}}</p>
+                            </div>
+                        </div>
+                        <script>
+                            document.getElementById('metadataCollapse').addEventListener('show.bs.collapse', function () {
+                                const button = document.querySelector('[data-bs-target="#metadataCollapse"]');
+                                button.textContent = 'Basisinformationen verbergen';
+                            });
+                            document.getElementById('metadataCollapse').addEventListener('hide.bs.collapse', function () {
+                                const button = document.querySelector('[data-bs-target="#metadataCollapse"]');
+                                button.textContent = 'Basisinformationen anzeigen';
+                            });
+                        </script>
 					</div>
 				</div>
 			</div>
