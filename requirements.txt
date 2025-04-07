@@ -14,3 +14,4 @@ lxml_html_clean==0.4.1
 openai==1.65.1
 gnews==0.4.0
 googlenewsdecoder==0.1.7
+llama-index==0.10.12
