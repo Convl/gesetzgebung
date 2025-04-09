@@ -1,5 +1,3 @@
-import docling.datamodel
-import docling.datamodel.document
 import requests
 from dotenv import load_dotenv
 import datetime
@@ -72,12 +70,8 @@ load_dotenv(os.path.join(basedir, ".env"))
 DIP_API_KEY = "I9FKdCn.hbfefNWCY336dL6x62vfwNKpoN2RZ1gp21"
 DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"
 DIP_ENDPOINT_VORGANG = "https://search.dip.bundestag.de/api/v1/vorgang/"
-DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = (
-    "https://search.dip.bundestag.de/api/v1/vorgangsposition"
-)
-DIP_ENDPOINT_VORGANGSPOSITION = (
-    "https://search.dip.bundestag.de/api/v1/vorgangsposition/"
-)
+DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = "https://search.dip.bundestag.de/api/v1/vorgangsposition"
+DIP_ENDPOINT_VORGANGSPOSITION = "https://search.dip.bundestag.de/api/v1/vorgangsposition/"
 FIRST_DATE_TO_CHECK = "2021-10-26"
 LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -137,9 +131,7 @@ def daily_update():
 
         cursor = ""
 
-        response = requests.get(
-            DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers
-        )
+        response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
         print("Starting daily update")
 
         while response.ok and cursor != response.json().get("cursor", None):
@@ -153,15 +145,11 @@ def daily_update():
                 # if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
                 law.dip_id = item.get("id", None)
                 law.abstract = item.get("abstract", None)
-                if not law.beratungsstand or law.beratungsstand[-1] != item.get(
-                    "beratungsstand", None
-                ):
+                if not law.beratungsstand or law.beratungsstand[-1] != item.get("beratungsstand", None):
                     law.beratungsstand.append(item.get("beratungsstand", None))
                 law.sachgebiet = [sg for sg in item.get("sachgebiet", [])]
                 law.wahlperiode = int(item.get("wahlperiode", None))
-                law.zustimmungsbeduerftigkeit = [
-                    zb for zb in item.get("zustimmungsbeduerftigkeit", [])
-                ]
+                law.zustimmungsbeduerftigkeit = [zb for zb in item.get("zustimmungsbeduerftigkeit", [])]
                 law.initiative = [ini for ini in item.get("initiative", [])]
                 law.aktualisiert = item.get("aktualisiert", None)
                 law.titel = item.get("titel", None)
@@ -191,9 +179,7 @@ def daily_update():
             print(f"old cursor: {cursor}")
             params["cursor"] = cursor = response.json().get("cursor", None)
             print(f"new cursor: {cursor}")
-            response = requests.get(
-                DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers
-            )
+            response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
             print(f"next cursor: {response.json().get("cursor", None)}")
 
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
@@ -219,9 +205,7 @@ def daily_update():
         )
         candidate_groups = {
             law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True)
-            for law_id, group in groupby(
-                all_candidates, key=lambda c: c.position.gesetz.id
-            )
+            for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)
         }
 
         saved_for_rollback = []
@@ -254,28 +238,16 @@ def daily_update():
                     inf for inf in infos if inf["id"] == position.id
                 )  # add a default here in case no match is found? That shouldn't be possible though
                 next_info = (
-                    next(
-                        inf
-                        for inf in infos
-                        if inf["id"] == candidates[i - 1].position.id
-                    )
-                    if i > 0
-                    else dummy_info
+                    next(inf for inf in infos if inf["id"] == candidates[i - 1].position.id) if i > 0 else dummy_info
                 )
 
                 # not due for its final update (newer_exists=False), has already been updated (next_update=True), not due for next update(next_update>now) -> skip
-                if (
-                    not newer_exists
-                    and candidate.next_update
-                    and candidate.next_update > now
-                ):
+                if not newer_exists and candidate.next_update and candidate.next_update > now:
                     continue
 
                 update_queries(client, law, now)
                 if not law.queries:
-                    print(
-                        f"CRITICAL: No search queries available for law with id {law.id}, skipping."
-                    )
+                    print(f"CRITICAL: No search queries available for law with id {law.id}, skipping.")
                     continue
 
                 if len(saved_for_rollback) >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT:
@@ -301,13 +273,10 @@ def daily_update():
                     # simpler version to replace 3 lines below, but does not handle initial runs with historical data well: candidate.next_update = (now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)])
                     offset = 0
                     while (
-                        position.datum + NEWS_UPDATE_INTERVALS[offset] < now
-                        and offset < len(NEWS_UPDATE_INTERVALS) - 1
+                        position.datum + NEWS_UPDATE_INTERVALS[offset] < now and offset < len(NEWS_UPDATE_INTERVALS) - 1
                     ):
                         offset += 1
-                    candidate.next_update = (
-                        position.datum + NEWS_UPDATE_INTERVALS[offset]
-                    )
+                    candidate.next_update = position.datum + NEWS_UPDATE_INTERVALS[offset]
                     candidate.update_count += 1
                 db.session.commit()
 
@@ -317,12 +286,7 @@ def daily_update():
 def update_queries(client, law, now):
     # If queries haven't been updated in a while / at all, update them now
     last_updated = law.queries_last_updated or datetime.date(1900, 1, 1)
-    if (
-        now - last_updated
-        > QUERY_UPDATE_INTERVALS[
-            min(law.query_update_counter, len(QUERY_UPDATE_INTERVALS) - 1)
-        ]
-    ):
+    if now - last_updated > QUERY_UPDATE_INTERVALS[min(law.query_update_counter, len(QUERY_UPDATE_INTERVALS) - 1)]:
         law.queries = generate_search_queries(client, law)
         if law.queries:
             law.queries_last_updated = now
@@ -359,9 +323,7 @@ def update_news(client, gn, position, infos, queries, saved_candidates, law=None
 
 
 def update_inkrafttreten(inkrafttreten, law):
-    existing_inkrafttreten = (
-        db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
-    )
+    existing_inkrafttreten = db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
     for inkraft in existing_inkrafttreten:
         db.session.delete(inkraft)
 
@@ -375,9 +337,7 @@ def update_inkrafttreten(inkrafttreten, law):
 
 
 def update_verkuendung(verkuendungen, law):
-    existing_verkuendungen = (
-        db.session.query(Verkuendung).filter_by(vorgangs_id=law.id).all()
-    )
+    existing_verkuendungen = db.session.query(Verkuendung).filter_by(vorgangs_id=law.id).all()
     for verkuendung in existing_verkuendungen:
         db.session.delete(verkuendung)
 
@@ -396,15 +356,13 @@ def update_positionen(dip_id, law):
     params = {"f.vorgang": dip_id}
 
     cursor = ""
-    response = requests.get(
-        DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-    )
+    response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
     new_position_dates = []
     while response.ok and cursor != response.json().get("cursor", None):
         for item in response.json().get("documents", []):
-            new_position = (
-                position := get_position_by_dip_id(item.get("id", None))
-            ) is None and item.get("gang", None) is True
+            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None and item.get(
+                "gang", None
+            ) is True
             position = position or Vorgangsposition()
             if not position.aktualisiert or position.aktualisiert != item.get(
                 "aktualisiert", None
@@ -447,16 +405,12 @@ def update_positionen(dip_id, law):
 
         time.sleep(1)
         params["cursor"] = cursor = response.json().get("cursor", None)
-        response = requests.get(
-            DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-        )
+        response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
 
 def update_beschluesse(position, beschlussfassungen):
     # position.beschluesse.clear()
-    existing_beschluesse = (
-        db.session.query(Beschlussfassung).filter_by(positions_id=position.id).all()
-    )
+    existing_beschluesse = db.session.query(Beschlussfassung).filter_by(positions_id=position.id).all()
     if existing_beschluesse:
         for beschluss in existing_beschluesse:
             db.session.delete(beschluss)
@@ -466,9 +420,7 @@ def update_beschluesse(position, beschlussfassungen):
         beschluss.beschlusstenor = item.get("beschlusstenor", None)
         beschluss.dokumentnummer = item.get("dokumentnummer", None)
         beschluss.seite = item.get("seite", None)
-        beschluss.abstimm_ergebnis_bemerkung = item.get(
-            "abstimm_ergebnis_bemerkung", None
-        )
+        beschluss.abstimm_ergebnis_bemerkung = item.get("abstimm_ergebnis_bemerkung", None)
 
         beschluss.position = position
         db.session.add(beschluss)
@@ -476,10 +428,7 @@ def update_beschluesse(position, beschlussfassungen):
 
 def update_fundstelle(position, dip_fundstelle):
     fundstelle = (
-        db.session.query(Fundstelle)
-        .filter(Fundstelle.positions_id == position.id)
-        .one_or_none()
-        or Fundstelle()
+        db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none() or Fundstelle()
     )
     fundstelle.dip_id = dip_fundstelle.get("id", None)
     fundstelle.dokumentnummer = dip_fundstelle.get("dokumentnummer", None)
@@ -553,8 +502,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
     except Exception as e:
         report_error(
             "Error loading fundstelle pdf to check size",
-            f"Error occurred on fundstelle {fundstelle.id} with url {fundstelle.pdf_url}.\n"
-            f"Error: {e}",
+            f"Error occurred on fundstelle {fundstelle.id} with url {fundstelle.pdf_url}.\n" f"Error: {e}",
             True,
         )
 
@@ -577,10 +525,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
         )
     else:
         dokument.markdown = (
-            converter.convert(fundstelle.pdf_url)
-            .document.export_to_markdown()
-            .replace(" ", "-")
-            .replace("  ", " ")
+            converter.convert(fundstelle.pdf_url).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
         )
 
     try:
@@ -607,9 +552,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
 
 def update_ueberweisungen(position, ueberweisungen):
     # position.ueberweisungen.clear()
-    existing_ueberweisungen = (
-        db.session.query(Ueberweisung).filter_by(positions_id=position.id).all()
-    )
+    existing_ueberweisungen = db.session.query(Ueberweisung).filter_by(positions_id=position.id).all()
     if existing_ueberweisungen:
         for ueberweisung in existing_ueberweisungen:
             db.session.delete(ueberweisung)
@@ -704,10 +647,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 },
                 {
                     "content": json.dumps(
-                        [
-                            {"index": i, "titel": article["title"]}
-                            for i, article in enumerate(gnews_response)
-                        ],
+                        [{"index": i, "titel": article["title"]} for i, article in enumerate(gnews_response)],
                         ensure_ascii=False,
                     ),
                     "role": "user",
@@ -757,10 +697,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 continue
 
             # this check has only been added after law 598, see above
-            if any(
-                article["url"] == existing_article["url"]
-                for existing_article in news_info["article_data"]
-            ):
+            if any(article["url"] == existing_article["url"] for existing_article in news_info["article_data"]):
                 continue
 
             try:
@@ -779,10 +716,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 continue
 
             # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
-            if (
-                not news_article.publish_date
-                or news_article.publish_date.date() >= end_date
-            ):
+            if not news_article.publish_date or news_article.publish_date.date() >= end_date:
                 continue
 
             news_info["artikel"].append(news_article.text)
@@ -797,11 +731,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
     # if a summary already exists
     if position.summary:
         # ...no need to make a new one if the old one was based on a sufficient number of articles and we haven't seen at least a 1.5x increase in article count since then
-        if (
-            news_info["relevant_hits"]
-            > position.summary.articles_found
-            >= IDEAL_ARTICLE_COUNT
-        ):
+        if news_info["relevant_hits"] > position.summary.articles_found >= IDEAL_ARTICLE_COUNT:
             if news_info["relevant_hits"] < position.summary.articles_found * 1.5:
                 print(
                     f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed."
@@ -809,9 +739,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 return news_info
         # ...obviously, don't make a new one if we haven't seen an increase in article count at all, either
         elif news_info["relevant_hits"] <= position.summary.articles_found:
-            print(
-                "Did not find more articles this time than last time, no update needed."
-            )
+            print("Did not find more articles this time than last time, no update needed.")
             return news_info
         # ...or if the actual articles that the summary was based on then, and would be based on now, are identical
         # (that would be unfortunate, though: If the article count has increased substantially,
@@ -820,10 +748,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # For now, though, I trust that Google News orders its results such that new articles containing new developments will be amongst the first
         # to get processed, and therefore end up in the selection of articles for the new summary.)
         if all(
-            any(
-                new_article["url"] == existing_article.url
-                for existing_article in position.summary.articles
-            )
+            any(new_article["url"] == existing_article.url for existing_article in position.summary.articles)
             for new_article in news_info["article_data"]
         ):
             print("Old and new articles identical, no need to update")
@@ -870,9 +795,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
     ]
 
     if not (ai_response := get_text_data_from_ai(client, generate_summary_messages)):
-        print(
-            f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}"""
-        )
+        print(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
         return news_info
 
     news_info["zusammenfassung"] = ai_response
@@ -898,9 +821,7 @@ def consider_rollback(saved_candidates):
         try:
             for original in saved_candidates:
                 candidate = (
-                    db.session.query(NewsUpdateCandidate)
-                    .filter(NewsUpdateCandidate.id == original.id)
-                    .one_or_none()
+                    db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none()
                     or NewsUpdateCandidate()
                 )
                 candidate.last_update = original.last_update
@@ -1013,9 +934,7 @@ def extract_shorthand(titel):
 def update_law_in_es(law):
     try:
         es_law = es.get(index=ES_LAWS_INDEX, id=law.id)
-        if law.titel == es_law["_source"].get("titel") and law.abstract == es_law[
-            "_source"
-        ].get("abstract"):
+        if law.titel == es_law["_source"].get("titel") and law.abstract == es_law["_source"].get("abstract"):
             return
 
     except NotFoundError:
