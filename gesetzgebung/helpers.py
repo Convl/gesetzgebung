@@ -5,6 +5,7 @@ import os
 import smtplib
 import datetime
 import json
+import time
 from urllib.parse import quote
 
 bundeslaender = {
@@ -193,9 +194,7 @@ def parse_actors(actors, kasus, capitalize=False, iterable=False):
                 praeposition += " Landes"
             elif genera[first_word] == "m":
                 if actor.startswith("Ausschuss"):
-                    actor = (
-                        actor[:9] + "es" + actor[9:]
-                    )  # "des AusschussES für Familie, Bildung..."
+                    actor = actor[:9] + "es" + actor[9:]  # "des AusschussES für Familie, Bildung..."
                 else:
                     actor += "es"  # "des BundestagES"
             elif genera[first_word] == "n":  # "des BundesministeriumS"
@@ -204,9 +203,7 @@ def parse_actors(actors, kasus, capitalize=False, iterable=False):
             if first_word in bundeslaender:  # "das LAND Bayern"
                 praeposition += " Land"
 
-        result += (
-            f"{praeposition} {actor}, " if not iterable else [f"{praeposition} {actor}"]
-        )
+        result += f"{praeposition} {actor}, " if not iterable else [f"{praeposition} {actor}"]
 
     if not iterable:
         result = result[:-2]
@@ -235,19 +232,14 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
 
         if beschluss.dokumentnummer:
             text += " in Bezug auf: "
-            dokumentnummern = [
-                dokumentnummer.strip()
-                for dokumentnummer in beschluss.dokumentnummer.split(",")
-            ]
+            dokumentnummern = [dokumentnummer.strip() for dokumentnummer in beschluss.dokumentnummer.split(",")]
 
             if len(dokumentnummern) > 1:
                 text += "<ul>"
 
             for dokumentnummer in dokumentnummern:
                 fundstellen_infos = (
-                    db.session.query(
-                        Fundstelle.drucksachetyp, Fundstelle.pdf_url, Fundstelle.urheber
-                    )
+                    db.session.query(Fundstelle.drucksachetyp, Fundstelle.pdf_url, Fundstelle.urheber)
                     .join(Vorgangsposition)
                     .filter(
                         Vorgangsposition.vorgangs_id == law.id,
@@ -264,9 +256,7 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
                     anmerkung = (
                         beschluss.abstimm_ergebnis_bemerkung
                         if beschluss.abstimm_ergebnis_bemerkung
-                        and beschluss.abstimm_ergebnis_bemerkung.startswith(
-                            ", Anmerkung"
-                        )
+                        and beschluss.abstimm_ergebnis_bemerkung.startswith(", Anmerkung")
                         else (
                             f", Stimmen(pro/contra/Enthaltung): {beschluss.abstimm_ergebnis_bemerkung}"
                             if beschluss.abstimm_ergebnis_bemerkung
@@ -285,9 +275,7 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
 
         else:
             text += (
-                f" (Anmerkung: {beschluss.abstimm_ergebnis_bemerkung})"
-                if beschluss.abstimm_ergebnis_bemerkung
-                else ""
+                f" (Anmerkung: {beschluss.abstimm_ergebnis_bemerkung})" if beschluss.abstimm_ergebnis_bemerkung else ""
             )
 
         text += "</li>"
@@ -337,33 +325,26 @@ def merge_beschluesse(
                 and beschluesse[i].beschlusstenor == beschluesse[j].beschlusstenor
             ):
 
-                if (
-                    beschluesse[i].abstimm_ergebnis_bemerkung
-                    != beschluesse[j].abstimm_ergebnis_bemerkung
-                ):
+                if beschluesse[i].abstimm_ergebnis_bemerkung != beschluesse[j].abstimm_ergebnis_bemerkung:
                     contains_beschluesse_from.add(beschluesse[j].positions_id)
 
                     if not merged.abstimm_ergebnis_bemerkung:
                         merged.abstimm_ergebnis_bemerkung = ""
 
                     if not zweite_und_dritte_beratung:
-                        merged.abstimm_ergebnis_bemerkung += (
-                            f" // {beschluesse[j].abstimm_ergebnis_bemerkung}"
-                        )
+                        merged.abstimm_ergebnis_bemerkung += f" // {beschluesse[j].abstimm_ergebnis_bemerkung}"
                     else:
                         if beschluesse[j].positions_id != beschluesse[i].positions_id:
 
                             if first_beschluss_from_dritte_beratung:
                                 merged.abstimm_ergebnis_bemerkung = (
-                                    ", Anmerkung aus der zweiten Beratung: "
-                                    + merged.abstimm_ergebnis_bemerkung
+                                    ", Anmerkung aus der zweiten Beratung: " + merged.abstimm_ergebnis_bemerkung
                                     if merged.abstimm_ergebnis_bemerkung
                                     else ""
                                 )
 
                             merged.abstimm_ergebnis_bemerkung += (
-                                ", Anmerkung aus der dritten Beratung: "
-                                + beschluesse[j].abstimm_ergebnis_bemerkung
+                                ", Anmerkung aus der dritten Beratung: " + beschluesse[j].abstimm_ergebnis_bemerkung
                                 if beschluesse[j].abstimm_ergebnis_bemerkung
                                 else ""
                             )
@@ -380,10 +361,7 @@ def merge_beschluesse(
                 contains_beschluesse_from.add(beschluesse[j].positions_id)
 
         if zweite_und_dritte_beratung:
-            if (
-                zweite in contains_beschluesse_from
-                and dritte in contains_beschluesse_from
-            ):
+            if zweite in contains_beschluesse_from and dritte in contains_beschluesse_from:
                 merged_beschluesse["2. und 3. Beratung"].append(merged)
             elif zweite in contains_beschluesse_from:
                 merged_beschluesse["2. Beratung"].append(merged)
@@ -450,18 +428,14 @@ def report_error(subject, message, terminate=False):
             )
             connection.close()
     except Exception as e:
-        print(
-            f"CRITICAL: Failed to report critical error via email. Error: {e}. Message: {subject}\n{message}"
-        )
+        print(f"CRITICAL: Failed to report critical error via email. Error: {e}. Message: {subject}\n{message}")
 
     if terminate:
         set_update_active(False)
         os._exit(1)
 
 
-def get_structured_data_from_ai(
-    client, messages, schema=None, subfield=None, models=None
-):
+def get_structured_data_from_ai(client, messages, schema=None, subfield=None, models=None):
     # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
     models = models or ["deepseek/deepseek-r1"]
     delay = 1
@@ -484,17 +458,9 @@ def get_structured_data_from_ai(
 
         try:
             ai_response = response.choices[0].message.content
-            ai_response = re.sub(
-                r"<think>.*?</think>", "", ai_response, flags=re.DOTALL
-            )
-            ai_response = re.sub(
-                r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL
-            )
-            ai_response = (
-                json.loads(ai_response).get(subfield, None)
-                if subfield
-                else json.loads(ai_response)
-            )
+            ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+            ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+            ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
             return ai_response
 
         except Exception as e:
@@ -511,46 +477,137 @@ def get_structured_data_from_ai(
     )
 
 
-def get_text_data_from_ai(client, messages, models=None):
+def get_text_data_from_ai(client, messages, models=None, stream=False):
     # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
     models = models or ["deepseek/deepseek-r1"]
-    delay = 1
+    if not stream:
+        delay = 1
+        for retry in range(13):
+            # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+            for i, model in enumerate(models):
+                response = client.chat.completions.create(
+                    model=model,
+                    extra_body={
+                        "models": models[i + 1 :],
+                        "provider": {"sort": "throughput"},
+                        "temperature": 0.5,
+                    },
+                    messages=messages,
+                )
+                if response.choices:
+                    break
 
-    for retry in range(13):
-        # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+            try:
+                ai_response = response.choices[0].message.content
+                # this shouldn't be necessary, but just in case
+                ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
+                ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
+                return ai_response
+
+            except Exception as e:
+                print(
+                    f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds."
+                )
+                time.sleep(delay)
+                delay *= 2
+
+        report_error(
+            "Error getting structured data from AI",
+            f"Could not get text data from AI. Time: {datetime.datetime.now()}, Messages: {messages}.",
+            True,
+        )
+    else:
         for i, model in enumerate(models):
-            response = client.chat.completions.create(
-                model=model,
-                extra_body={
-                    "models": models[i + 1 :],
-                    "provider": {"sort": "throughput"},
-                    "temperature": 0.5,
-                },
-                messages=messages,
-            )
-            if response.choices:
-                break
+            try:
+                stream_response = client.chat.completions.create(
+                    model=model,
+                    extra_body={
+                        "models": models[i + 1 :],
+                        "provider": {"sort": "throughput"},
+                        "temperature": 0.5,
+                    },
+                    messages=messages,
+                    stream=True,  # Enable streaming
+                )
 
-        try:
-            ai_response = response.choices[0].message.content
-            # this shouldn't be necessary, but just in case
-            ai_response = re.sub(
-                r"<think>.*?</think>", "", ai_response, flags=re.DOTALL
-            )
-            ai_response = re.sub(
-                r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL
-            )
-            return ai_response
+                # Return a generator that yields each chunk
+                def generate():
+                    full_text = ""
+                    last_activity = time.time()
+                    idle_timeout = 20
 
-        except Exception as e:
-            print(
-                f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds."
-            )
-            time.sleep(delay)
-            delay *= 2
+                    try:
+                        for chunk in stream_response:
+                            if hasattr(chunk, "error") or (hasattr(chunk, "object") and chunk.object == "error"):
+                                error_details = getattr(chunk, "error", {})
+                                error_message = getattr(error_details, "message", "Unknown provider error")
+                                error_code = getattr(error_details, "code", "unknown")
+
+                                formatted_error = f"Error: {error_message}"
+                                if error_code != "unknown":
+                                    formatted_error += f" (code: {error_code})"
+
+                                print(f"Received error event in stream: {formatted_error}")
+                                yield {
+                                    "chunk": formatted_error,
+                                    "error": "provider_error",
+                                }
+
+                            last_activity = time.time()
+
+                            if hasattr(chunk.choices[0], "delta") and hasattr(chunk.choices[0].delta, "content"):
+                                content = chunk.choices[0].delta.content
+                                if content is not None:
+                                    full_text += content
+                                    yield {"chunk": content, "full_text": full_text}
+
+                            # Check for finish reason if available
+                            if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
+                                print(f"Stream finished with reason: {chunk.choices[0].finish_reason}")
+                                break
+                            current_time = time.time()
+                            if current_time - last_activity > idle_timeout:
+                                print(f"Stream idle for {idle_timeout} seconds, terminating")
+                                if full_text:
+                                    yield {
+                                        "chunk": "\n\n[Response timed out]",
+                                        "full_text": full_text + "\n\n[Response timed out]",
+                                        "error": "stream_timeout",
+                                    }
+                                break
+
+                    except Exception as e:
+                        print(f"Exception in chunk processing: {e}")
+                        print(f"Exception type: {type(e)}")
+                        print(f"Exception dir: {dir(e)}")  # Print all attributes of the exception
+
+                        # Just pass the error message directly
+                        yield {"chunk": f"Error: {str(e)}", "error": True}
+
+                return generate()
+
+            except Exception as e:
+                print(f"Error with model {model}: {e}")
+                print(f"Exception type: {type(e)}")
+                print(f"Exception dir: {dir(e)}")
+
+                # Just pass the error message directly
+                def error_generator():
+                    yield {"chunk": f"Error: {str(e)}", "error": True}
+
+                return error_generator()
 
     report_error(
-        "Error getting structured data from AI",
-        f"Could not get text data from AI. Time: {datetime.datetime.now()}, Messages: {messages}.",
+        "Error getting streaming data from AI",
+        f"All models failed for streaming request. Time: {datetime.datetime.now()}, Messages: {messages}.",
         True,
     )
+
+    # Return an empty generator
+    def empty_generator():
+        yield {
+            "chunk": "Error: All models failed",
+            "full_text": "Error: All models failed",
+        }
+
+    return empty_generator()

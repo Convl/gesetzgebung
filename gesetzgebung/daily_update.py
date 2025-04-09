@@ -25,45 +25,46 @@ from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
 import re
 from itertools import groupby
-import smtplib
 
 
-### Everything related to RAG
-from langchain_docling import DoclingLoader
-from langchain_docling.loader import ExportType
-from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
-from docling.chunking import HybridChunker
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
-from docling.datamodel.base_models import InputFormat
-from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import SupabaseVectorStore
-from supabase.client import Client, create_client
-import tempfile
-import pypdfium2
-from pathlib import Path
-import pypdfium2.raw as pdfium_c
-import ctypes
+### Below stuff was experimental, not currently needed
+# from langchain_docling import DoclingLoader
+# from langchain_docling.loader import ExportType
+# from langchain_openai.embeddings import OpenAIEmbeddings
+# from langchain_community.vectorstores import SupabaseVectorStore
+# from supabase.client import Client, create_client
+# import tempfile
+# from pathlib import Path
+# supabase_url = os.environ.get("SUPABASE_URL")
+# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+# supabase: Client = create_client(supabase_url, supabase_key)
+# embeddings = OpenAIEmbeddings()
 
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
-embeddings = OpenAIEmbeddings()
+# ### Below stuff is for storing PDFs in the database
+# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
+# from docling.chunking import HybridChunker
+# from docling.document_converter import DocumentConverter, PdfFormatOption
+# from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+# from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
+# from docling.datamodel.base_models import InputFormat
+# import pypdfium2
+# import pypdfium2.raw as pdfium_c
+# import ctypes
 
-pipeline_options = PdfPipelineOptions()
-pipeline_options.do_ocr = True
-pipeline_options.do_table_structure = True
-pipeline_options.table_structure_options.do_cell_matching = True
 
-converter = DocumentConverter(
-    format_options={
-        InputFormat.PDF: PdfFormatOption(
-            pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
-        )
-    }
-)
-### Everything related to RAG
+# pipeline_options = PdfPipelineOptions()
+# pipeline_options.do_ocr = True
+# pipeline_options.do_table_structure = True
+# pipeline_options.table_structure_options.do_cell_matching = True
+
+# converter = DocumentConverter(
+#     format_options={
+#         InputFormat.PDF: PdfFormatOption(
+#             pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
+#         )
+#     }
+# )
+
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
@@ -115,9 +116,8 @@ def daily_update():
                 f"Immediately terminating new process at {datetime.datetime.now()}.",
                 True,
             )
-        # TODO: uncomment! set_update_active(True)
+        set_update_active(True)
 
-        store_markdown()
         return None
 
         # ----------- Phase I: Enter new information from DIP into database ---------- #
@@ -544,7 +544,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
         with requests.get(fundstelle.pdf_url) as response:
             response.raise_for_status()
             pdf = pypdfium2.PdfDocument(response.content)
-            if len(pdf) > 300:
+            if len(pdf) > 500:
                 print(
                     f"Skipping fundstelle {fundstelle.id} with url {fundstelle.pdf_url} because it has more than 500 pages"
                 )
@@ -582,16 +582,27 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
             .replace(" ", "-")
             .replace("  ", " ")
         )
+
     try:
-        dokument.conversion_date = datetime.datetime.now()
-        dokument.fundstelle = fundstelle
-        dokument.vorgangsposition = position.vorgangsposition
-        dokument.herausgeber = fundstelle.herausgeber
-        db.session.add(dokument)
-        db.session.commit()
+        test = db.session.query(Vorgangsposition).first()
     except Exception as e:
-        print(f"Error updating dokument for fundstelle {fundstelle.id}: {e}")
+        print(f"Connection closed during pdf processing: {e}. Reconnecting...")
         db.session.rollback()
+        try:
+            test = db.session.query(Vorgangsposition).first()
+        except Exception as e:
+            print(f"Reconnect failed. Exiting...")
+            db.session.rollback()
+            db.session.close()
+            db.engine.dispose()
+            os._exit(1)
+
+    dokument.conversion_date = datetime.datetime.now()
+    dokument.fundstelle = fundstelle
+    dokument.vorgangsposition = position.vorgangsposition
+    dokument.herausgeber = fundstelle.herausgeber
+    db.session.add(dokument)
+    db.session.commit()
 
 
 def update_ueberweisungen(position, ueberweisungen):
@@ -1017,576 +1028,529 @@ def update_law_in_es(law):
     )
 
 
-def handle_embeddings():
-    law = get_law_by_id(302)
-    if (
-        beschluss_position := db.session.query(Vorgangsposition)
-        .filter(
-            Vorgangsposition.vorgangs_id == law.id,
-            Vorgangsposition.vorgangsposition == "Beschlussempfehlung und Bericht",
-        )
-        .one_or_none()
-    ):
-        beschluss_position_id = beschluss_position.id
-    if (
-        beschluss := db.session.query(Fundstelle)
-        .filter(Fundstelle.positions_id == beschluss_position_id)
-        .one_or_none()
-    ):
-        beschluss_url = beschluss.pdf_url
-    chunks = chunk_document(beschluss_url)
-
-    for i, chunk in enumerate(chunks):
-        chunk.page_content = chunk.page_content.replace(" ", "-").replace("  ", " ")
-        chunk.metadata.update(
-            {
-                "law_id": law.id,
-                "document_type": "Beschlussempfehlung",
-                "document_id": str(beschluss_position_id),
-                "chunk_number": i,
-            }
-        )
-    vector_store = SupabaseVectorStore.from_documents(
-        chunks,
-        embeddings,
-        client=supabase,
-        table_name="documents",
-        query_name="match_documents",
-    )
-    query = "Was sind die wichtigsten Unterschiede zwischen dem Gesetzentwurf und der Beschlussempfehlung des Ausschusses?"
-    matched_docs = vector_store.similarity_search(query)
-    print(matched_docs)
-    os._exit(0)
-
-
-def chunk_document(url):
-    tokenizer = OpenAITokenizerWrapper()
-    MAX_TOKENS = 8191
-
-    pipeline_options = PdfPipelineOptions()
-    pipeline_options.do_ocr = True
-    pipeline_options.do_table_structure = True
-    pipeline_options.table_structure_options.do_cell_matching = True
-
-    doc_converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(
-                pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
-            )
-        }
-    )
-
-    loader = DoclingLoader(
-        file_path=url,
-        export_type=ExportType.DOC_CHUNKS,
-        converter=doc_converter,
-        chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS),
-    )
-    splits = loader.load()
-
-    # conv_result = doc_converter.convert(url)
-    # with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".md", encoding='utf-8') as temp_file:
-    #     markdown_content = conv_result.document.export_to_markdown()
-    #     temp_file.write(markdown_content)
-    #     temp_file_path = temp_file.name  # Save the path
-
-    # # File is now closed, we can use the loader
-    # try:
-    #     loader = DoclingLoader(
-    #         file_path=temp_file_path,
-    #         export_type=ExportType.DOC_CHUNKS,
-    #         converter=doc_converter,
-    #         chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS)
-    #     )
-    #     splits = loader.load()
-    # finally:
-    #     # Clean up the temporary file
-    #     os.unlink(temp_file_path)
-
-    return splits
-
-
-def map_pdf_pages(dokument: Fundstelle) -> tuple[int, int]:
-    # TODO fix calculation of offset. It used to be abs(candidate - i), which was mostly right,
-    # except when the external numbers were lower than the internal ones
-    # Now I removed the abs and that leads to bad outcomes when it is the other way around, i.e. the external numbers are higher than the internal ones
-    """Maps internal page numbers to external page numbers for a given document.
-    Returns a tuple of the (external) page number on which the internal page numbers start,
-    and the offset between external and internal numbers.
-    """
-
-    # Download the PDF
-    url = dokument.pdf_url
-
-    try:
-        with requests.get(url) as response:
-            response.raise_for_status()
-            pdf = pypdfium2.PdfDocument(response.content)
-
-    except Exception as e:
-        report_error(
-            "Error mapping internal to external page numbers",
-            f"Error occurred on document {dokument.id} with url {url}.\n" f"Error: {e}",
-            True,
-        )
-
-    # Search the upper 15% of each page for any and all numbers and save them in a list of lists
-    try:
-        num_pages = len(pdf)
-        pages = []
-        search_area_percent = 0.15
-
-        for page_idx in range(num_pages):
-            page = pdf[page_idx]
-            page_width, page_height = page.get_size()
-            top_search_height = page_height * search_area_percent
-            page_text = page.get_textpage()
-            top_text = page_text.get_text_bounded(
-                0, page_height - top_search_height, page_width, page_height
-            )
-            page_candidates = []
-            nums = re.findall(r"\b\d+\b", top_text)
-            for num in nums:
-                try:
-                    n = int(num)
-                    page_candidates.append(n)
-                except ValueError:
-                    continue
-            pages.append(page_candidates)
-        pdf.close()
-
-    except Exception as e:
-        report_error(
-            "Error processing PDF page",
-            f"Failed to process page {page_idx} of document {dokument.id}: {str(e)}",
-            True,
-        )
-
-    # Keep going through the numbers from each page until we find a sequence of 10 consecutive numbers
-    start = None
-    offset = None
-    done = False
-    pages_missing_numbers = 0
-    sequences = []
-    pages_with_consecutive_numbers_threshold = (
-        10 if len(pages) >= 20 else len(pages) // 2
-    )
-    verify_last_pages = (
-        min(5, len(pages) - pages_with_consecutive_numbers_threshold)
-        if len(pages) > 20
-        else 0
-    )
-
-    for i, page in enumerate(pages):
-        if done:
-            break
-
-        # empty pages dont have numbers printed on them. This way, they don't break the sequence, but they don't count towards the threshold, either
-        if not page:
-            pages_missing_numbers += 1
-            continue
-
-        continued_sequences = []
-        new_sequences = []
-
-        for candidate in page:
-            if done:
-                break
-
-            continues_sequence = False
-
-            for j, sequence in enumerate(sequences):
-                # dont append more than one number to each sequence per page
-                if j in continued_sequences:
-                    continue
-
-                if candidate == sequence[-1] + 1 + pages_missing_numbers:
-                    continues_sequence = True
-                    sequence.append(candidate)
-                    continued_sequences.append(j)
-
-                    if len(sequence) >= pages_with_consecutive_numbers_threshold:
-                        # if our sequence covers the length of the document, we are done
-                        if not verify_last_pages or i >= len(pages) - verify_last_pages:
-                            done = True
-                            start = i - pages_with_consecutive_numbers_threshold + 1
-                            offset = candidate - i
-                            break
-                        else:
-                            # check if the sequence still holds for any of the last 5 pages
-                            # (technically, just checking the last page should be enough, but this should be a bit more robust)
-                            for k in range(
-                                len(pages) - 1, len(pages) - 1 - verify_last_pages, -1
-                            ):
-                                if any(
-                                    final_candidate == candidate + k - i
-                                    for final_candidate in pages[k]
-                                ):
-                                    done = True
-                                    start = (
-                                        i - pages_with_consecutive_numbers_threshold + 1
-                                    )
-                                    offset = candidate - i
-                                    break
-
-                            if done:
-                                break
-
-                            # if it does not, report an error
-                            report_error(
-                                "Error mapping internal to external page numbers",
-                                f"Found {pages_with_consecutive_numbers_threshold} consecutive numbers on pages {i - pages_with_consecutive_numbers_threshold} to {i}.\n"
-                                f"However, the last page {pages[-1]} does not have the expected internal page number {candidate + len(pages) - i}.\n"
-                                f"Instead, the last page contains these numbers: {', '.join(str(n) for n in pages[-1])}.\n"
-                                f"Error occurred on document {dokument.id} with url {url}.",
-                                True,
-                            )
-
-            # if the candidate did not continue any sequences, it may be the start of a new sequence
-            if not continues_sequence:
-                new_sequences.append([candidate])
-
-        pages_missing_numbers = 0
-
-        # remove sequences that were not continued on the current page
-        for j in range(len(sequences) - 1, -1, -1):
-            if j not in continued_sequences:
-                sequences.pop(j)
-
-        sequences += new_sequences
-
-    if start and offset is not None:
-        print(
-            f"Finished mapping internal page numbers for dokument with id: {dokument.id} and url: {url}.\n"
-            f"Internal page numbers start on internal page {start + 1} (1-indexed), which has external page number {start + offset}, making the offset {offset - 1}."
-        )
-        return (
-            start + 1,
-            offset - 1,
-        )  # +1 / -1 because our list was 0-indexed, but to the reader, pdf pages are 1-indexed
-    else:
-        report_error(
-            "Error mapping internal to external page numbers",
-            f"Could not find a sequence of {pages_with_consecutive_numbers_threshold} consecutive numbers on the first {len(pages)} pages.\n"
-            f"Error occurred on document {dokument.id} with url {url}.",
-            True,
-        )
-
-
-def update_all_pdf_urls():
-    """Maps the pdf_url of all fundstellen from the Bundesrat for which this hasn't been done yet."""
-
-    fundstellen = (
-        db.session.query(Fundstelle)
-        .filter(
-            Fundstelle.pdf_url.like("%#P.%"),
-            Fundstelle.herausgeber == "BR",
-            Fundstelle.mapped_pdf_url == None,
-        )
-        .all()
-    )
-    fundstellen_groups = {}
-    for fundstelle in fundstellen:
-        fundstellen_groups[fundstelle.dokumentnummer] = fundstellen_groups.get(
-            fundstelle.dokumentnummer, []
-        ) + [fundstelle]
-    for group in fundstellen_groups.values():
-        start, offset = map_pdf_pages(group[0])
-        for fundstelle in group:
-            try:
-                internal_page = fundstelle.pdf_url.split("#P.")[1]
-                external_page = int(internal_page) - offset
-                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-                    f"#P.{internal_page}", f"#page={external_page}"
-                )
-                print(f"Old url: {fundstelle.pdf_url}")
-                print(f"New url: {fundstelle.mapped_pdf_url}")
-            except Exception as e:
-                print(
-                    f"Error mapping pdf url for fundstelle {fundstelle.id}: {e}, url: {fundstelle.pdf_url}"
-                )
-        db.session.commit()
-
-
-import ctypes
-from pypdfium2 import PdfDocument
-import pypdfium2.raw as pdfium_c
-
-
-def map_pdf_destinations_to_pages(fundstelle: Fundstelle):
-    """
-    Get all named destinations from a PDF file. Used for pdf files from the Bundestag, where internal page numbers are layed out as named destinations.
-
-    Args:
-        pdf_path: Path to the PDF file
-
-    Returns:
-        A list of tuples containing (destination_name, destination_handle)
-    """
-
-    url = fundstelle.pdf_url
-
-    with requests.get(url) as response:
-        pdf = pypdfium2.PdfDocument(response.content)
-
-    doc_handle = pdf.raw
-
-    # get the count of named destinations
-    count = pdfium_c.FPDF_CountNamedDests(doc_handle)
-
-    destinations = {}
-
-    # For each destination
-    for i in range(count):
-        # First, get the required buffer size
-        buflen = ctypes.c_long(0)
-        dest_handle = pdfium_c.FPDF_GetNamedDest(
-            doc_handle, i, None, ctypes.byref(buflen)
-        )
-
-        if not dest_handle:
-            print(f"No destination found for index {i}")
-            continue
-
-        # If buffer length is returned as -1, something went wrong
-        if buflen.value <= 0:
-            print(f"Error getting buffer size for destination {i}")
-            continue
-
-        # Allocate buffer for the destination name
-        buffer = ctypes.create_string_buffer(buflen.value)
-
-        # Second call to get the actual name
-        pdfium_c.FPDF_GetNamedDest(doc_handle, i, buffer, ctypes.byref(buflen))
-
-        # Skip the last 2 bytes which are null terminators
-        name_bytes = buffer.raw[: buflen.value - 2]
-
-        # Convert from UTF-16LE to Python string
-        try:
-            dest_name = name_bytes.decode("utf-16le")
-            # Get the page index from the destination handle
-            page_index = pdfium_c.FPDFDest_GetDestPageIndex(doc_handle, dest_handle)
-
-            # Page indices are 0-based in PDFium, convert to 1-based for user-friendly display
-            page_number = page_index + 1 if page_index >= 0 else None
-
-            destinations[dest_name] = page_number
-        except UnicodeDecodeError:
-            print(
-                f"Error decoding destination name or page number at index {i} / {count} for url: {url}, fundstelle id: {fundstelle.id}"
-            )
-
-    print(f"found {len(destinations.keys())} named destinations")
-    return destinations
-
-
-def store_markdown():
-    # positions_typen = [
-    #     pos[0]
-    #     for pos in db.session.query(Vorgangsposition.vorgangsposition).distinct().all()
-    # ]
-    # positionen_groups = {}
-    # for positions_typ in positions_typen:
-    #     positionen_groups[positions_typ] = (
-    #         db.session.query(Vorgangsposition)
-    #         .filter(Vorgangsposition.vorgangsposition == positions_typ)
-    #         .limit(3)
-    #         .all()
-    #     )
-
-    # folder = f"dokumente/"
-    # counter = 1
-    # total = sum(
-    #     len(positionen_groups[positions_typ]) for positions_typ in positionen_groups
-    # )
-    # folder = f"dokumente/"
-    # counter = 1
-    # total = 1
-    # positionen_groups = {
-    #     "bla": [
-    #         db.session.query(Vorgangsposition)
-    #         .filter(Vorgangsposition.id == 269)
-    #         .one_or_none()
-    #     ]
-    # }
-
-    # with requests.get(positionen_groups["bla"][0].fundstelle.pdf_url) as response:
-    #     pdf = pypdfium2.PdfDocument(response.content)
-    #     bla = pdf[0].get_textpage()
-    #     print(pdf.get_page_count())
-    # os._exit(0)
-
-    positionen = (
-        db.session.query(Vorgangsposition)
-        .join(Fundstelle, Fundstelle.positions_id == Vorgangsposition.id)
-        .filter(
-            or_(
-                Fundstelle.anfangsseite != Fundstelle.endseite,
-                and_(Fundstelle.anfangsseite == None, Fundstelle.endseite == None),
-            )
-        )
-        .filter(~Fundstelle.dokument.has())
-        .all()
-    )
-
-    for position in positionen:
-        fundstelle = position.fundstelle
-
-        if fundstelle.dokument:
-            continue
-
-        if "#P." in fundstelle.pdf_url and (
-            not fundstelle.mapped_pdf_url
-            or not fundstelle.anfangsseite_mapped
-            or not fundstelle.endseite_mapped
-        ):
-            if fundstelle.herausgeber == "BR":
-                try:
-                    start, offset = map_pdf_pages(fundstelle)
-                    anfangsseite_internal = fundstelle.anfangsseite
-                    anfangsseite = int(anfangsseite_internal) - offset
-                    endseite = int(fundstelle.endseite) - offset
-                    fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-                        f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
-                    )
-                except Exception as e:
-                    report_error(
-                        "Error mapping destinations to pages",
-                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                        False,
-                    )
-            elif fundstelle.herausgeber == "BT":
-                try:
-                    destinations = map_pdf_destinations_to_pages(fundstelle)
-                    anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
-                    endseite = int(
-                        destinations.get(
-                            f"P.{fundstelle.endseite}",
-                            anfangsseite
-                            + (int(fundstelle.endseite) - int(fundstelle.anfangsseite)),
-                        )
-                    )
-                except Exception as e:
-                    report_error(
-                        "Error mapping destinations to pages",
-                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                        False,
-                    )
-            else:
-                report_error(
-                    "Error mapping destinations to pages",
-                    f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
-                    False,
-                )
-
-            fundstelle.anfangsseite_mapped = anfangsseite
-            fundstelle.endseite_mapped = endseite
-
-        update_dokument(position, fundstelle)
-
-    #         filename = f"{re.sub(r'[^a-zA-Z0-9\-_]', '_', positions_typ)}_{position.id}"
-    #         if os.path.exists(f"{folder}{filename}.md"):
-    #             continue
-
-    #         try:
-    #             if position.fundstelle.anfangsseite and position.fundstelle.endseite:
-    #                 if position.fundstelle.herausgeber == "BT":
-    #                     try:
-    #                         destinations = map_pdf_destinations_to_pages(
-    #                             position.fundstelle
-    #                         )
-    #                         anfangsseite = destinations[
-    #                             f"P.{position.fundstelle.anfangsseite}"
-    #                         ]
-    #                         endseite = destinations[f"P.{position.fundstelle.endseite}"]
-    #                     except Exception as e:
-    #                         report_error(
-    #                             "Error mapping destinations to pages",
-    #                             f"Error mapping destinations to pages for fundstelle id: {position.fundstelle.id}, url: {position.fundstelle.pdf_url}: {e}",
-    #                             True,
-    #                         )
-
-    #                 elif position.fundstelle.mapped_pdf_url:
-    #                     anfangsseite = int(
-    #                         position.fundstelle.mapped_pdf_url.split("#page=")[1]
-    #                     )
-    #                     offset = abs(
-    #                         int(position.fundstelle.pdf_url.split("#P.")[1])
-    #                         - anfangsseite
-    #                     )
-    #                     endseite = int(position.fundstelle.endseite) - offset
-    #                 else:
-    #                     start, offset = map_pdf_pages(position.fundstelle)
-    #                     anfangsseite = int(position.fundstelle.anfangsseite) - offset
-    #                     endseite = int(position.fundstelle.endseite) - offset
-    #             else:
-    #                 anfangsseite = None
-    #                 endseite = None
-
-    #             if anfangsseite and endseite:
-    #                 doc = converter.convert(
-    #                     position.fundstelle.pdf_url,
-    #                     page_range=(anfangsseite, endseite),
-    #                 )
-    #             else:
-    #                 doc = converter.convert(position.fundstelle.pdf_url)
-
-    #             with open(f"{folder}{filename}.md", "w", encoding="utf-8") as f:
-    #                 f.write(
-    #                     doc.document.export_to_markdown()
-    #                     .replace(" ", "-")
-    #                     .replace("  ", " ")
-    #                 )
-
-    #             with requests.get(position.fundstelle.pdf_url) as response:
-    #                 response.raise_for_status()
-    #                 pdf = response.content
-    #                 with open(f"{folder}{filename}.pdf", "wb") as f:
-    #                     f.write(pdf)
-
-    #             print(f"Stored markdown and pdf for position {counter} / {total}")
-    #             counter += 1
-
-    #         except Exception as e:
-    #             print(f"Error converting document {position.fundstelle.pdf_url}: {e}")
-
-    # os._exit(0)
-
-    # laws: List[GesetzesVorhaben] = [get_law_by_id(301)]
-
-    # # TODO: pdf_url may be different even for identical pdfs, because of the #P.XXX at the end of the url
-    # for law in laws:
-    #     fundstellen = (
-    #         db.session.query(Fundstelle)
-    #         .join(Vorgangsposition, Fundstelle.positions_id == Vorgangsposition.id)
-    #         .filter(
-    #             Vorgangsposition.vorgangs_id == law.id,
-    #             or_(
-    #                 Vorgangsposition.vorgangsposition
-    #                 == "Beschlussempfehlung und Bericht",
-    #                 Vorgangsposition.vorgangsposition == "Beschlussempfehlung",
-    #                 Vorgangsposition.vorgangsposition == "Bericht",
-    #                 Vorgangsposition.vorgangsposition == "Gesetzentwurf",
-    #             ),
-    #         )
-    #         .all()
-    #     )
-    #     for i, fundstelle in enumerate(fundstellen):
-    #         if fundstelle.dokument.markdown:
-    #             continue
-    #         markdown = converter.convert(
-    #             fundstelle.pdf_url
-    #         ).document.export_to_markdown()
-
-    #         markdown = re.sub(r" ", "", markdown)
-    #         markdown = re.sub(r"  ", " ", markdown)
-
-    #         fundstelle.dokument.markdown = markdown
-    #         db.session.commit()
-    #         print(
-    #             f"Stored markdown for Fundstelle index {i} / {len(fundstellen)-1}, ID: {fundstelle.id}, pdf url: {fundstelle.pdf_url}"
-    #         )
+# def handle_embeddings():
+#     law = get_law_by_id(302)
+#     if (
+#         beschluss_position := db.session.query(Vorgangsposition)
+#         .filter(
+#             Vorgangsposition.vorgangs_id == law.id,
+#             Vorgangsposition.vorgangsposition == "Beschlussempfehlung und Bericht",
+#         )
+#         .one_or_none()
+#     ):
+#         beschluss_position_id = beschluss_position.id
+#     if (
+#         beschluss := db.session.query(Fundstelle)
+#         .filter(Fundstelle.positions_id == beschluss_position_id)
+#         .one_or_none()
+#     ):
+#         beschluss_url = beschluss.pdf_url
+#     chunks = chunk_document(beschluss_url)
+
+#     for i, chunk in enumerate(chunks):
+#         chunk.page_content = chunk.page_content.replace(" ", "-").replace("  ", " ")
+#         chunk.metadata.update(
+#             {
+#                 "law_id": law.id,
+#                 "document_type": "Beschlussempfehlung",
+#                 "document_id": str(beschluss_position_id),
+#                 "chunk_number": i,
+#             }
+#         )
+#     vector_store = SupabaseVectorStore.from_documents(
+#         chunks,
+#         embeddings,
+#         client=supabase,
+#         table_name="documents",
+#         query_name="match_documents",
+#     )
+#     query = "Was sind die wichtigsten Unterschiede zwischen dem Gesetzentwurf und der Beschlussempfehlung des Ausschusses?"
+#     matched_docs = vector_store.similarity_search(query)
+#     print(matched_docs)
+#     os._exit(0)
+
+
+# def chunk_document(url):
+#     tokenizer = OpenAITokenizerWrapper()
+#     MAX_TOKENS = 8191
+
+#     pipeline_options = PdfPipelineOptions()
+#     pipeline_options.do_ocr = True
+#     pipeline_options.do_table_structure = True
+#     pipeline_options.table_structure_options.do_cell_matching = True
+
+#     doc_converter = DocumentConverter(
+#         format_options={
+#             InputFormat.PDF: PdfFormatOption(
+#                 pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
+#             )
+#         }
+#     )
+
+#     loader = DoclingLoader(
+#         file_path=url,
+#         export_type=ExportType.DOC_CHUNKS,
+#         converter=doc_converter,
+#         chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS),
+#     )
+#     splits = loader.load()
+
+# conv_result = doc_converter.convert(url)
+# with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".md", encoding='utf-8') as temp_file:
+#     markdown_content = conv_result.document.export_to_markdown()
+#     temp_file.write(markdown_content)
+#     temp_file_path = temp_file.name  # Save the path
+
+# # File is now closed, we can use the loader
+# try:
+#     loader = DoclingLoader(
+#         file_path=temp_file_path,
+#         export_type=ExportType.DOC_CHUNKS,
+#         converter=doc_converter,
+#         chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS)
+#     )
+#     splits = loader.load()
+# finally:
+#     # Clean up the temporary file
+#     os.unlink(temp_file_path)
+
+# return splits
+
+
+# def map_pdf_pages(dokument: Fundstelle) -> tuple[int, int]:
+#     """Maps internal page numbers to external page numbers for a given document.
+#     Returns a tuple of the (external) page number on which the internal page numbers start,
+#     and the offset between external and internal numbers.
+#     """
+
+#     # Download the PDF
+#     url = dokument.pdf_url
+
+#     try:
+#         with requests.get(url) as response:
+#             response.raise_for_status()
+#             pdf = pypdfium2.PdfDocument(response.content)
+
+#     except Exception as e:
+#         report_error(
+#             "Error mapping internal to external page numbers",
+#             f"Error occurred on document {dokument.id} with url {url}.\n" f"Error: {e}",
+#             True,
+#         )
+
+#     # Search the upper 15% of each page for any and all numbers and save them in a list of lists
+#     try:
+#         num_pages = len(pdf)
+#         pages = []
+#         search_area_percent = 0.15
+
+#         for page_idx in range(num_pages):
+#             page = pdf[page_idx]
+#             page_width, page_height = page.get_size()
+#             top_search_height = page_height * search_area_percent
+#             page_text = page.get_textpage()
+#             top_text = page_text.get_text_bounded(
+#                 0, page_height - top_search_height, page_width, page_height
+#             )
+#             page_candidates = []
+#             nums = re.findall(r"\b\d+\b", top_text)
+#             for num in nums:
+#                 try:
+#                     n = int(num)
+#                     page_candidates.append(n)
+#                 except ValueError:
+#                     continue
+#             pages.append(page_candidates)
+#         pdf.close()
+
+#     except Exception as e:
+#         report_error(
+#             "Error processing PDF page",
+#             f"Failed to process page {page_idx} of document {dokument.id}: {str(e)}",
+#             True,
+#         )
+
+#     # Keep going through the numbers from each page until we find a sequence of 10 consecutive numbers
+#     start = None
+#     offset = None
+#     done = False
+#     pages_missing_numbers = 0
+#     sequences = []
+#     pages_with_consecutive_numbers_threshold = (
+#         10 if len(pages) >= 20 else len(pages) // 2
+#     )
+#     verify_last_pages = (
+#         min(5, len(pages) - pages_with_consecutive_numbers_threshold)
+#         if len(pages) > 20
+#         else 0
+#     )
+
+#     for i, page in enumerate(pages):
+#         if done:
+#             break
+
+#         # empty pages dont have numbers printed on them. This way, they don't break the sequence, but they don't count towards the threshold, either
+#         if not page:
+#             pages_missing_numbers += 1
+#             continue
+
+#         continued_sequences = []
+#         new_sequences = []
+
+#         for candidate in page:
+#             if done:
+#                 break
+
+#             continues_sequence = False
+
+#             for j, sequence in enumerate(sequences):
+#                 # dont append more than one number to each sequence per page
+#                 if j in continued_sequences:
+#                     continue
+
+#                 if candidate == sequence[-1] + 1 + pages_missing_numbers:
+#                     continues_sequence = True
+#                     sequence.append(candidate)
+#                     continued_sequences.append(j)
+
+#                     if len(sequence) >= pages_with_consecutive_numbers_threshold:
+#                         # if our sequence covers the length of the document, we are done
+#                         if not verify_last_pages or i >= len(pages) - verify_last_pages:
+#                             done = True
+#                             start = i - pages_with_consecutive_numbers_threshold + 1
+#                             offset = candidate - i
+#                             break
+#                         else:
+#                             # check if the sequence still holds for any of the last 5 pages
+#                             # (technically, just checking the last page should be enough, but this should be a bit more robust)
+#                             for k in range(
+#                                 len(pages) - 1, len(pages) - 1 - verify_last_pages, -1
+#                             ):
+#                                 if any(
+#                                     final_candidate == candidate + k - i
+#                                     for final_candidate in pages[k]
+#                                 ):
+#                                     done = True
+#                                     start = (
+#                                         i - pages_with_consecutive_numbers_threshold + 1
+#                                     )
+#                                     offset = candidate - i
+#                                     break
+
+#                             if done:
+#                                 break
+
+#                             # if it does not, report an error
+#                             report_error(
+#                                 "Error mapping internal to external page numbers",
+#                                 f"Found {pages_with_consecutive_numbers_threshold} consecutive numbers on pages {i - pages_with_consecutive_numbers_threshold} to {i}.\n"
+#                                 f"However, the last page {pages[-1]} does not have the expected internal page number {candidate + len(pages) - i}.\n"
+#                                 f"Instead, the last page contains these numbers: {', '.join(str(n) for n in pages[-1])}.\n"
+#                                 f"Error occurred on document {dokument.id} with url {url}.",
+#                                 True,
+#                             )
+
+#             # if the candidate did not continue any sequences, it may be the start of a new sequence
+#             if not continues_sequence:
+#                 new_sequences.append([candidate])
+
+#         pages_missing_numbers = 0
+
+#         # remove sequences that were not continued on the current page
+#         for j in range(len(sequences) - 1, -1, -1):
+#             if j not in continued_sequences:
+#                 sequences.pop(j)
+
+#         sequences += new_sequences
+
+#     if start and offset is not None:
+#         print(
+#             f"Finished mapping internal page numbers for dokument with id: {dokument.id} and url: {url}.\n"
+#             f"Internal page numbers start on internal page {start + 1} (1-indexed), which has external page number {start + offset}, making the offset {offset - 1}."
+#         )
+#         return (
+#             start + 1,
+#             offset - 1,
+#         )  # +1 / -1 because our list was 0-indexed, but to the reader, pdf pages are 1-indexed
+#     else:
+#         report_error(
+#             "Error mapping internal to external page numbers",
+#             f"Could not find a sequence of {pages_with_consecutive_numbers_threshold} consecutive numbers on the first {len(pages)} pages.\n"
+#             f"Error occurred on document {dokument.id} with url {url}.",
+#             True,
+#         )
+
+
+# def update_all_pdf_urls():
+#     """Maps the pdf_url of all fundstellen from the Bundesrat for which this hasn't been done yet."""
+
+#     fundstellen = (
+#         db.session.query(Fundstelle)
+#         .filter(
+#             Fundstelle.pdf_url.like("%#P.%"),
+#             Fundstelle.herausgeber == "BR",
+#             Fundstelle.mapped_pdf_url == None,
+#         )
+#         .all()
+#     )
+#     fundstellen_groups = {}
+#     for fundstelle in fundstellen:
+#         fundstellen_groups[fundstelle.dokumentnummer] = fundstellen_groups.get(
+#             fundstelle.dokumentnummer, []
+#         ) + [fundstelle]
+#     for group in fundstellen_groups.values():
+#         start, offset = map_pdf_pages(group[0])
+#         for fundstelle in group:
+#             try:
+#                 internal_page = fundstelle.pdf_url.split("#P.")[1]
+#                 external_page = int(internal_page) - offset
+#                 fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
+#                     f"#P.{internal_page}", f"#page={external_page}"
+#                 )
+#                 print(f"Old url: {fundstelle.pdf_url}")
+#                 print(f"New url: {fundstelle.mapped_pdf_url}")
+#             except Exception as e:
+#                 print(
+#                     f"Error mapping pdf url for fundstelle {fundstelle.id}: {e}, url: {fundstelle.pdf_url}"
+#                 )
+#         db.session.commit()
+
+
+# def map_pdf_destinations_to_pages(fundstelle: Fundstelle):
+#     """
+#     Get all named destinations from a PDF file. Used for pdf files from the Bundestag, where internal page numbers are layed out as named destinations.
+
+#     Args:
+#         pdf_path: Path to the PDF file
+
+#     Returns:
+#         A dictionary mapping destination names to page numbers
+#     """
+
+#     if (
+#         not fundstelle.anfangsseite
+#         or not fundstelle.anfangsseite.isdigit()
+#         or not fundstelle.endseite
+#         or not fundstelle.endseite.isdigit()
+#     ):
+#         report_error(
+#             "Missing anfangsseite or endseite",
+#             f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
+#             False,
+#         )
+#         return {}
+#     anfangsseite = int(fundstelle.anfangsseite)
+#     endseite = int(fundstelle.endseite)
+#     offset = endseite - anfangsseite
+#     if offset < 0:
+#         report_error(
+#             "Anfangsseite is greater than endseite",
+#             f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
+#             False,
+#         )
+#         return {}
+
+#     url = fundstelle.pdf_url
+
+#     with requests.get(url) as response:
+#         pdf = pypdfium2.PdfDocument(response.content)
+
+#     doc_handle = pdf.raw
+
+#     # get the count of named destinations
+#     count = pdfium_c.FPDF_CountNamedDests(doc_handle)
+
+#     destinations = {}
+
+#     # For each destination
+#     for i in range(count):
+#         # First, get the required buffer size
+#         buflen = ctypes.c_long(0)
+#         dest_handle = pdfium_c.FPDF_GetNamedDest(
+#             doc_handle, i, None, ctypes.byref(buflen)
+#         )
+
+#         if not dest_handle:
+#             print(f"No destination found for index {i}")
+#             continue
+
+#         # If buffer length is returned as -1, something went wrong
+#         if buflen.value <= 0:
+#             print(f"Error getting buffer size for destination {i}")
+#             continue
+
+#         # Allocate buffer for the destination name
+#         buffer = ctypes.create_string_buffer(buflen.value)
+
+#         # Second call to get the actual name
+#         pdfium_c.FPDF_GetNamedDest(doc_handle, i, buffer, ctypes.byref(buflen))
+
+#         # Skip the last 2 bytes which are null terminators
+#         name_bytes = buffer.raw[: buflen.value - 2]
+
+#         # Convert from UTF-16LE to Python string
+#         try:
+#             dest_name = name_bytes.decode("utf-16le")
+#             # Get the page index from the destination handle
+#             page_index = pdfium_c.FPDFDest_GetDestPageIndex(doc_handle, dest_handle)
+
+#             # Page indices are 0-based in PDFium, convert to 1-based for user-friendly display
+#             page_number = page_index + 1 if page_index >= 0 else None
+
+#             destinations[dest_name] = page_number
+#         except UnicodeDecodeError:
+#             print(
+#                 f"Error decoding destination name or page number at index {i} / {count} for url: {url}, fundstelle id: {fundstelle.id}"
+#             )
+
+#     print(f"found {len(destinations.keys())} named destinations")
+
+#     mapped_anfangsseite, mapped_endseite = None, None
+
+#     # The function should return at this point if the DIP values for anfangsseite and endseite are in the destinations dictionary
+#     if (mapped_anfangsseite := destinations.get(f"P.{anfangsseite}", None)) and (
+#         mapped_endseite := destinations.get(f"P.{endseite}", None)
+#     ):
+#         return destinations
+
+#     # if we get here, the DIP values for anfangsseite and endseite are not in the destinations dictionary
+#     # so we need to approximate them
+#     lowest_destination = min(
+#         int(k.split(".")[1])
+#         for k in destinations.keys()
+#         if k.startswith("P.") and k.split(".")[1].isdigit()
+#     )
+#     highest_destination = max(
+#         int(k.split(".")[1])
+#         for k in destinations.keys()
+#         if k.startswith("P.") and k.split(".")[1].isdigit()
+#     )
+
+#     def approximate_destination(seite):
+#         i = 1
+#         mapped_seite = None
+#         while (
+#             not (mapped_seite := destinations.get(f"P.{seite - i}", None))
+#             and seite - i >= lowest_destination
+#         ):
+#             i += 1
+#         if mapped_seite:
+#             return mapped_seite + i
+
+#         i = 1
+#         while (
+#             not (mapped_seite := destinations.get(f"P.{seite + i}", None))
+#             and seite + i <= highest_destination
+#         ):
+#             i += 1
+#         if mapped_seite:
+#             return mapped_seite - i
+
+#         report_error(
+#             "Failed to approximate destination",
+#             f"Failed to approximate destination for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, page: {seite}, destinations: {destinations}",
+#             False,
+#         )
+#         return None
+
+#     mapped_anfangsseite = mapped_anfangsseite or approximate_destination(anfangsseite)
+#     mapped_endseite = mapped_endseite or approximate_destination(endseite)
+
+#     # if the approximation failed for either anfangsseite or endseite, we try to approximate it based on the other one and the offset
+#     mapped_anfangsseite = mapped_anfangsseite or (
+#         mapped_endseite - offset if mapped_endseite else None
+#     )
+#     mapped_endseite = mapped_endseite or (
+#         mapped_anfangsseite + offset if mapped_anfangsseite else None
+#     )
+
+#     if mapped_anfangsseite and mapped_endseite:
+#         if mapped_anfangsseite > mapped_endseite:
+#             report_error(
+#                 "Invalid destination mapping - anfangsseite is greater than endseite",
+#                 f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, anfangsseite: {anfangsseite}, endseite: {endseite}, destinations: {destinations}",
+#                 False,
+#             )
+#             return {}
+#         else:
+#             destinations[f"P.{anfangsseite}"] = mapped_anfangsseite
+#             destinations[f"P.{endseite}"] = mapped_endseite
+#             return destinations
+#     else:
+#         report_error(
+#             "Failed to map destinations",
+#             f"Failed to map destinations for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, destinations: {destinations}",
+#             False,
+#         )
+#         return {}
+
+
+# def store_markdown():
+#     positionen = (
+#         db.session.query(Vorgangsposition)
+#         .join(Fundstelle, Fundstelle.positions_id == Vorgangsposition.id)
+#         .filter(
+#             or_(
+#                 Fundstelle.anfangsseite != Fundstelle.endseite,
+#                 and_(Fundstelle.anfangsseite == None, Fundstelle.endseite == None),
+#             )
+#         )
+#         .filter(~Fundstelle.dokument.has())
+#         .all()
+#     )
+
+#     for position in positionen:
+#         fundstelle = position.fundstelle
+
+#         if fundstelle.dokument:
+#             continue
+
+#         if "#P." in fundstelle.pdf_url and (
+#             not fundstelle.mapped_pdf_url
+#             or not fundstelle.anfangsseite_mapped
+#             or not fundstelle.endseite_mapped
+#         ):
+#             anfangsseite, endseite = None, None
+#             if fundstelle.herausgeber == "BR":
+#                 try:
+#                     start, offset = map_pdf_pages(fundstelle)
+#                     anfangsseite_internal = fundstelle.anfangsseite
+#                     anfangsseite = int(anfangsseite_internal) - offset
+#                     endseite = int(fundstelle.endseite) - offset
+#                     fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
+#                         f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
+#                     )
+#                 except Exception as e:
+#                     report_error(
+#                         "Error mapping destinations to pages",
+#                         f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
+#                         False,
+#                     )
+#             elif fundstelle.herausgeber == "BT":
+#                 try:
+#                     destinations = map_pdf_destinations_to_pages(fundstelle)
+#                     anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
+#                     endseite = int(destinations[f"P.{fundstelle.endseite}"])
+#                 except Exception as e:
+#                     report_error(
+#                         "Error mapping destinations to pages",
+#                         f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
+#                         False,
+#                     )
+#             else:
+#                 report_error(
+#                     "Error mapping destinations to pages",
+#                     f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
+#                     False,
+#                 )
+
+#             fundstelle.anfangsseite_mapped = anfangsseite
+#             fundstelle.endseite_mapped = endseite
+
+#         update_dokument(position, fundstelle)
+
+#     db.session.close()
+#     db.engine.dispose()
 
 
 if __name__ == "__main__":

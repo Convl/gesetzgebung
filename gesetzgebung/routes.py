@@ -1,43 +1,35 @@
-import newspaper.configuration
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
 from gesetzgebung.flask_file import app
 
 # from gesetzgebung.models import * # TODO: just in case of issues: this used to be here and not in config.py, but db.create_all() needs models
 from gesetzgebung.helpers import *
 
-# from gesetzgebung.daily_update import daily_update # TODO: no idea what that was doing here
-from flask import render_template, request, jsonify
+from flask import render_template, request, jsonify, stream_with_context, Response
 import datetime
 import copy
 import os
 import json
 from openai import OpenAI
-import newspaper
-from gnews import GNews
-from googlenewsdecoder import gnewsdecoder
-import re
 
 ### Everything related to RAG
-from langchain_docling import DoclingLoader
-from langchain_docling.loader import ExportType
-from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
-from docling.chunking import HybridChunker
-from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.base_models import InputFormat
-from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_community.vectorstores import SupabaseVectorStore
-from supabase.client import Client, create_client
-import tempfile
+# from langchain_docling import DoclingLoader
+# from langchain_docling.loader import ExportType
+# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
+# from docling.chunking import HybridChunker
+# from docling.document_converter import DocumentConverter, PdfFormatOption
+# from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+# from docling.datamodel.pipeline_options import PdfPipelineOptions
+# from docling.datamodel.base_models import InputFormat
+# from langchain_openai.embeddings import OpenAIEmbeddings
+# from langchain_community.vectorstores import SupabaseVectorStore
+# from supabase.client import Client, create_client
 
 
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-supabase: Client = create_client(supabase_url, supabase_key)
-embeddings = OpenAIEmbeddings()
+# supabase_url = os.environ.get("SUPABASE_URL")
+# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
+# supabase: Client = create_client(supabase_url, supabase_key)
+# embeddings = OpenAIEmbeddings()
 
-# client = OpenAI()
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AI_ENDPOINT = "https://openrouter.ai/api/v1"
 client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
@@ -899,127 +891,179 @@ def autocomplete():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    def generate():
+        data = request.get_json()
+        user_message = data.get("message", "")
+        law_id = data.get("law_id", "")
+        law = get_law_by_id(law_id)
 
-    data = request.get_json()
-    user_message = data.get("message", "")
-    law_id = data.get("law_id", "")
-    law = get_law_by_id(law_id)
-
-    dokumente = (
-        db.session.query(Dokument)
-        .join(Fundstelle, Fundstelle.id == Dokument.fundstelle_id)
-        .join(Vorgangsposition, Vorgangsposition.id == Fundstelle.positions_id)
-        .filter(Vorgangsposition.vorgangs_id == law.id)
-        .all()
-    )
-
-    dokumente_list = [
-        {
-            "Dokument id": i,
-            "Herausgeber dieses Dokuments": (
-                "Bundestag"
-                if d.herausgeber == "BT"
-                else "Bundesrat" if d.herausgeber == "BR" else "Unbekannt"
-            ),
-            "Zu diesem Dokument gehörende Vorgangsposition innerhalb des Gesetzgebungsverfahrens": d.vorgangsposition,
-        }
-        for i, d in enumerate(dokumente)
-    ]
-    if not dokumente:
-        return jsonify(
-            {
-                "response": "Zu diesem Gesetz gibt es noch keine maschinenlesbaren Dokumente, daher kann Ihre Frage leider nicht beantwortet werden."
-            }
+        dokumente = (
+            db.session.query(Dokument)
+            .join(Fundstelle, Fundstelle.id == Dokument.fundstelle_id)
+            .join(Vorgangsposition, Vorgangsposition.id == Fundstelle.positions_id)
+            .filter(Vorgangsposition.vorgangs_id == law.id)
+            .all()
         )
+        if not dokumente:
+            yield f"data: {json.dumps({'stage': 'error', 'chunk': 'Zu diesem Gesetz gibt es noch keine maschinenlesbaren Dokumente, daher kann Ihre Frage leider nicht beantwortet werden.'})}\n\n"
+            return
 
-    filter_documents_schema = {
-        "name": "Filter_Dokumente_Schema",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "dokumente": {
-                    "type": "array",
-                    "description": "Die Liste der von dir bewerteten Dokumente",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "index": {
-                                "type": "number",
-                                "description": "Die Indexnummer eines Dokuments",
+        dokumente_list = [
+            {
+                "Dokument id": i,
+                "Herausgeber dieses Dokuments": (
+                    "Bundestag"
+                    if d.herausgeber == "BT"
+                    else "Bundesrat" if d.herausgeber == "BR" else "Unbekannt"
+                ),
+                "Zu diesem Dokument gehörende Vorgangsposition innerhalb des Gesetzgebungsverfahrens": d.vorgangsposition,
+            }
+            for i, d in enumerate(dokumente)
+        ]
+
+        yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Zu diesem Gesetz liegen {len(dokumente)} Dokumente vor. <br>Durchsuche den Bestand nach für die Frage relevanten Dokumenten. Dies kann einen Augenblick dauern...'})}\n\n"
+
+        filter_documents_schema = {
+            "name": "Filter_Dokumente_Schema",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "dokumente": {
+                        "type": "array",
+                        "description": "Die Liste der von dir bewerteten Dokumente",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "index": {
+                                    "type": "number",
+                                    "description": "Die Indexnummer eines Dokuments",
+                                },
+                                "passend": {
+                                    "type": "number",
+                                    "description": "1, wenn das Dokument mit dieser Indexnummer zur Beantwortung der Frage des Nutzers voraussichtlich hilfreich sein wird, andernfalls 0",
+                                },
                             },
-                            "passend": {
-                                "type": "number",
-                                "description": "1, wenn das Dokument mit dieser Indexnummer zur Beantwortung der Frage des Nutzers voraussichtlich hilfreich sein wird, andernfalls 0",
-                            },
+                            "required": ["index", "passend"],
                         },
-                        "required": ["index", "passend"],
-                    },
-                }
+                    }
+                },
+                "required": ["dokumente"],
             },
-            "required": ["dokumente"],
-        },
-    }
+        }
 
-    filter_documents_messages = [
-        {
-            "role": "system",
-            "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen.
-            Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
-            Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten, die zu diesem Gesetz gehören, mitteilen.
-            Du sollst die Frage noch NICHT beantworten.
-            Stattdessen sollst du dir die Liste der Dokumente anschauen und dir zu jedem der Dokumente überlegen, ob es voraussichtlich hilfreich sein wird, um die Frage zu beantworten.
-            Dementsprechend wirst du in das Feld 'passend' entweder eine 1 (wenn du das Dokument für sinnvoll hältst) oder eine 0 (wenn du das Dokument für nicht sinnvoll hältst) eintragen.
-            Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(filter_documents_schema, ensure_ascii=False, indent=4)}""",
-        },
-        {
-            "role": "user",
-            "content": f"""Meine Frage lautet: {user_message}\n\n
-            Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
-            {json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
-        },
-    ]
-    ai_response = get_structured_data_from_ai(
-        client, filter_documents_messages, filter_documents_schema, "dokumente"
-    )
-
-    if len(dokumente_list) != len(ai_response):
-        return jsonify(
+        filter_documents_messages = [
             {
-                "response": "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut."
-            }
+                "role": "system",
+                "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen.
+                Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
+                Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten, die zu diesem Gesetz gehören, mitteilen.
+                Du sollst die Frage noch NICHT beantworten.
+                Stattdessen sollst du dir die Liste der Dokumente anschauen und dir zu jedem der Dokumente überlegen, ob es voraussichtlich hilfreich sein wird, um die Frage zu beantworten.
+                Dementsprechend wirst du in das Feld 'passend' entweder eine 1 (wenn du das Dokument für sinnvoll hältst) oder eine 0 (wenn du das Dokument für nicht sinnvoll hältst) eintragen.
+                Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(filter_documents_schema, ensure_ascii=False, indent=4)}""",
+            },
+            {
+                "role": "user",
+                "content": f"""Meine Frage lautet: {user_message}\n\n
+                Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
+                {json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
+            },
+        ]
+
+        try:
+            ai_response = get_structured_data_from_ai(
+                client, filter_documents_messages, filter_documents_schema, "dokumente"
+            )
+        except Exception as e:
+            yield f"data: {json.dumps({'stage': 'error', 'chunk': f'Beim Filtern der Dokumente ist ein Fehler aufgetreten: {str(e)}'})}\n\n"
+            return
+
+        if len(dokumente_list) != len(ai_response):
+            yield f"data: {json.dumps({'stage': 'error', 'chunk': 'Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.'})}\n\n"
+            return
+
+        for i in range(len(ai_response) - 1, -1, -1):
+            if ai_response[i]["passend"] == 0:
+                dokumente_list.pop(i)
+            else:
+                dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[
+                    i
+                ].markdown
+
+        doc_list_message = "Folgende Dokumente werden für die Beantwortung verwendet:"
+        for i, doc in enumerate(dokumente_list):
+            doc_list_message += f"\n\n**{i+1}. Dokument**<br>"
+            doc_list_message += (
+                f"Herausgeber: {doc['Herausgeber dieses Dokuments']}<br>"
+            )
+            doc_list_message += f"Vorgangsposition: {doc['Zu diesem Dokument gehörende Vorgangsposition innerhalb des Gesetzgebungsverfahrens']}<br>"
+
+        yield f"data: {json.dumps({'stage': 'documents', 'chunk': doc_list_message})}\n\n"
+
+        word_count = sum(
+            len(doc["Der Inhalt des Dokuments lautet:"].split())
+            for doc in dokumente_list
         )
 
-    for i in range(len(ai_response) - 1, -1, -1):
-        if ai_response[i]["passend"] == 0:
-            dokumente_list.pop(i)
-        else:
-            dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[
-                i
-            ].markdown
+        yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Generiere eine Antwort auf Basis dieser Dokumente. Die Dokumente umfassen insgesamt {word_count} Wörter auf {int(word_count/700)} Seiten. Dies kann einen Augenblick dauern...'})}\n\n"
 
-    answer_question_messages = [
-        {
-            "role": "system",
-            "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen. 
-        Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
-        Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
-        Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
-        },
-        {
-            "role": "user",
-            "content": f"""Meine Frage lautet: {user_message}\n\n
-            Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
-            {json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
-        },
-    ]
+        answer_question_messages = [
+            {
+                "role": "system",
+                "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen. 
+            Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
+            Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
+            Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
+            },
+            {
+                "role": "user",
+                "content": f"""Meine Frage lautet: {user_message}\n\n
+                Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
+                {json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
+            },
+        ]
 
-    ai_response = get_text_data_from_ai(
-        client,
-        answer_question_messages,
-        models=["google/gemini-2.5-pro-exp-03-25:free"],
-    )
+        try:
+            print("About to start streaming response")
+            streaming_response = get_text_data_from_ai(
+                client,
+                answer_question_messages,
+                models=["google/gemini-2.5-pro-exp-03-25:free"],
+                stream=True,
+            )
 
-    return jsonify({"response": f"{ai_response}"})
+            print("Got streaming response generator, starting to yield chunks")
+            chunk_count = 0
+
+            for chunk in streaming_response:
+                try:
+                    # Debug info
+                    chunk_count += 1
+                    if chunk_count % 10 == 0:
+                        print(f"Processed {chunk_count} chunks")
+
+                    # Make sure chunk is serializable
+                    if chunk.get("error", False):
+                        # Just pass through the error message
+                        yield f"data: {json.dumps({'stage': 'error', 'chunk': chunk['chunk']})}\n\n"
+                        break
+                    else:
+                        yield f"data: {json.dumps({'stage': 'answer', **chunk})}\n\n"
+
+                except Exception as chunk_error:
+                    print(f"Error processing chunk: {chunk_error}")
+                    error_msg = f"Fehler beim Verarbeiten eines Teils der Antwort: {str(chunk_error)}"
+                    yield f"data: {json.dumps({'stage': 'error', 'chunk': error_msg})}\n\n"
+                    break
+
+            print(f"Finished streaming response, processed {chunk_count} chunks")
+
+        except Exception as stream_error:
+            print(f"Error during streaming: {stream_error}")
+            error_message = f"Bei der Generierung der Antwort ist ein Fehler aufgetreten: {str(stream_error)}"
+            yield f"data: {json.dumps({'stage': 'error', 'chunk': error_message})}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")

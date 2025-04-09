@@ -22,8 +22,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {  # TODO: remove this if it causes problems
     "pool_size": 5,
     "max_overflow": 10,
-    "pool_recycle": 1500,  # Recycle connections after 1 hour
-    "pool_pre_ping": True,  # Test connections before use
+    "pool_recycle": 1500,
+    "pool_pre_ping": True,
 }
 app.config["DEBUG"] = DEBUG
 
