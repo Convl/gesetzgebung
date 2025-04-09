@@ -19,7 +19,7 @@ DEBUG = os.environ.get("ENV_FLAG", "") == "development"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {  # TODO: remove this if it causes problems
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {  # TODO: remove this if it causes any problems
     "pool_size": 5,
     "max_overflow": 10,
     "pool_recycle": 1500,
