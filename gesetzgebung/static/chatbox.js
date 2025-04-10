@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const { done, value } = await reader.read();
                 if (done) break;
                 
-                // Decode the chunk
+                
                 const chunk = decoder.decode(value, { stream: true });
                 
                 // Process each line (event) in the chunk
@@ -58,7 +58,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             
                             // Handle different message stages
                             if (eventData.stage === 'status' || eventData.stage === 'documents') {
-                                // Add a new message for status and documents
                                 const messageDiv = document.createElement('div');
                                 messageDiv.className = 'message assistant-message';
                                 messageDiv.innerHTML = marked.parse(eventData.chunk);
@@ -66,7 +65,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                 chatMessages.scrollTop = chatMessages.scrollHeight;
                             }
                             else if (eventData.stage === 'error') {
-                                // Add error message
                                 const errorDiv = document.createElement('div');
                                 errorDiv.className = 'message assistant-message error-message';
                                 errorDiv.innerHTML = marked.parse(eventData.chunk);
@@ -77,13 +75,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             else if (eventData.stage === 'answer') {
                                 // For answer chunks, update a single message
                                 if (!answerDiv) {
-                                    // Create a new div for the answer on first chunk
                                     answerDiv = document.createElement('div');
                                     answerDiv.className = 'message assistant-message answer-message';
                                     chatMessages.appendChild(answerDiv);
                                 }
                                 
-                                // Update the answer
                                 if (eventData.chunk) {
                                     answerText += eventData.chunk;
                                     answerDiv.innerHTML = marked.parse(answerText);
@@ -98,7 +94,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } catch (error) {
             console.error('Fetch error:', error);
-            // Add error message
             const errorDiv = document.createElement('div');
             errorDiv.className = 'message assistant-message error-message';
             errorDiv.textContent = 'Fehler bei der Verarbeitung der Anfrage.';

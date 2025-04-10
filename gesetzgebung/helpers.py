@@ -579,9 +579,8 @@ def get_text_data_from_ai(client, messages, models=None, stream=False):
                     except Exception as e:
                         print(f"Exception in chunk processing: {e}")
                         print(f"Exception type: {type(e)}")
-                        print(f"Exception dir: {dir(e)}")  # Print all attributes of the exception
+                        print(f"Exception dir: {dir(e)}")
 
-                        # Just pass the error message directly
                         yield {"chunk": f"Error: {str(e)}", "error": True}
 
                 return generate()
@@ -591,7 +590,6 @@ def get_text_data_from_ai(client, messages, models=None, stream=False):
                 print(f"Exception type: {type(e)}")
                 print(f"Exception dir: {dir(e)}")
 
-                # Just pass the error message directly
                 def error_generator():
                     yield {"chunk": f"Error: {str(e)}", "error": True}
 

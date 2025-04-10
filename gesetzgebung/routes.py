@@ -158,22 +158,12 @@ def parse_law(law, display=True):
     nachtraege = [{"vorgangsposition": v, "pdf_url": p} for v, p in nachtraege]
 
     beratungsstand = (
-        law.beratungsstand[-1]
-        if law.beratungsstand
-        else "Zu diesem Gesetz liegt leider noch kein Beratungsstand vor."
+        law.beratungsstand[-1] if law.beratungsstand else "Zu diesem Gesetz liegt leider noch kein Beratungsstand vor."
     )
-    law_abstract = (
-        law.abstract
-        if law.abstract
-        else "Zu diesem Gesetz liegt leider noch keine Zusammenfassung vor."
-    )
+    law_abstract = law.abstract if law.abstract else "Zu diesem Gesetz liegt leider noch keine Zusammenfassung vor."
     zustimmungsbeduerftigkeit = (
         [
-            (
-                "<strong>Ja</strong>" + z[2:]
-                if z.startswith("Ja")
-                else "<strong>Nein</strong>" + z[4:]
-            )
+            ("<strong>Ja</strong>" + z[2:] if z.startswith("Ja") else "<strong>Nein</strong>" + z[4:])
             for z in law.zustimmungsbeduerftigkeit
         ]
         if law.zustimmungsbeduerftigkeit
@@ -191,9 +181,7 @@ def parse_law(law, display=True):
         or "Fraktion" in law.initiative[0]
         or "Gruppe" in law.initiative[0]
         or "ausschuss" in law.initiative[0].lower()
-        else (
-            "Bundesregierung" if law.initiative[0] == "Bundesregierung" else "Bundesrat"
-        )
+        else ("Bundesregierung" if law.initiative[0] == "Bundesregierung" else "Bundesrat")
     )  # law.initiative is None if a random group of Abgeordnete initiates the law, which effectively equates to "Bundestag"
     pfad = copy.deepcopy(pfade[initiative])
 
@@ -238,16 +226,12 @@ def parse_law(law, display=True):
                         capitalize=True,
                     )
                     text += " legt" if len(position.urheber_titel) == 1 else " legen"
-                    text += (
-                        f" dem {zuordnungen[position.zuordnung]} den Gesetzentwurf vor."
-                    )
+                    text += f" dem {zuordnungen[position.zuordnung]} den Gesetzentwurf vor."
                 else:
                     text = f"Der Gesetzentwurf wird im {zuordnungen[position.zuordnung]} eingebracht."
                 ai_info = text
                 info["vorgangsposition"] = (
-                    "Gesetzentwurf im Bundestag"
-                    if position.zuordnung == "BT"
-                    else "Gesetzentwurf im Bundesrat"
+                    "Gesetzentwurf im Bundestag" if position.zuordnung == "BT" else "Gesetzentwurf im Bundesrat"
                 )
 
             case "1. Beratung" | "Zurückverweisung an die Ausschüsse in 2./3. Beratung":
@@ -263,16 +247,12 @@ def parse_law(law, display=True):
                     key=lambda x: " (federführend)" not in x,
                 )
 
-                ausschuesse = parse_actors(
-                    ausschuesse, praepositionen_akkusativ, iterable=True
-                )
+                ausschuesse = parse_actors(ausschuesse, praepositionen_akkusativ, iterable=True)
                 if position.vorgangsposition == "1. Beratung":
                     text = "Die 1. Lesung im Bundestag findet statt. Das Gesetz wird überwiesen an\n\n<ul>"
                     ai_info = "Die 1. Lesung im Bundestag findet statt."
                 else:
-                    text = (
-                        "Das Gesetz wird in der 2./3. Lesung zurückverwiesen an\n\n<ul>"
-                    )
+                    text = "Das Gesetz wird in der 2./3. Lesung zurückverwiesen an\n\n<ul>"
                     ai_info = "Das Gesetz wird in der 2./3. Lesung zurückverwiesen."
 
                 for ausschuss in ausschuesse:
@@ -280,10 +260,7 @@ def parse_law(law, display=True):
                 text += "</ul>"
 
                 # if Zurückverweisung, reset passed Flag on previous Beschlussempfehlung
-                if (
-                    position.vorgangsposition
-                    == "Zurückverweisung an die Ausschüsse in 2./3. Beratung"
-                ):
+                if position.vorgangsposition == "Zurückverweisung an die Ausschüsse in 2./3. Beratung":
                     for inf in infos:
                         if inf["vorgangsposition"] in [
                             "Beschlussempfehlung und Bericht",
@@ -295,16 +272,8 @@ def parse_law(law, display=True):
 
             case "Beschlussempfehlung und Bericht" | "Beschlussempfehlung":
                 text = parse_actors(position.urheber_titel, praepositionen_genitiv)
-                abstract = (
-                    position.abstract[12:]
-                    if position.abstract.startswith("Empfehlung: ")
-                    else position.abstract
-                )
-                text = (
-                    "Die Empfehlung "
-                    + text
-                    + f" lautet: \n<strong>{abstract}</strong>."
-                )
+                abstract = position.abstract[12:] if position.abstract.startswith("Empfehlung: ") else position.abstract
+                text = "Die Empfehlung " + text + f" lautet: \n<strong>{abstract}</strong>."
                 ai_info = text
 
             case "Bericht":
@@ -313,9 +282,7 @@ def parse_law(law, display=True):
                 ai_info = text
 
             case "2. Beratung" | "2. Beratung und Schlussabstimmung":
-                if position.abstract and position.abstract.startswith(
-                    "Zusammengeführt mit"
-                ):
+                if position.abstract and position.abstract.startswith("Zusammengeführt mit"):
                     info["marks_failure"] = True
                     text = create_link(position)
 
@@ -335,20 +302,12 @@ def parse_law(law, display=True):
                     info["vorgangsposition"] = "2. und 3. Beratung"
                     for nachtrag in nachtraege:
                         if nachtrag["vorgangsposition"] == "3. Beratung":
-                            info[
-                                "link"
-                            ] += f', <a href="{nachtrag["pdf_url"]}">Nachtrag</a>'
+                            info["link"] += f', <a href="{nachtrag["pdf_url"]}">Nachtrag</a>'
 
-                    ai_info = text = (
-                        "Die 2. und 3. Lesung im Bundestag finden am selben Tag statt."
-                    )
+                    ai_info = text = "Die 2. und 3. Lesung im Bundestag finden am selben Tag statt."
 
-                    position_beschluesse = [
-                        BeschlussfassungDisplay(b) for b in position.beschluesse
-                    ]
-                    beschluesse_dritte_beratung = [
-                        BeschlussfassungDisplay(b) for b in beschluesse_dritte_beratung
-                    ]
+                    position_beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                    beschluesse_dritte_beratung = [BeschlussfassungDisplay(b) for b in beschluesse_dritte_beratung]
                     position_beschluesse.extend(beschluesse_dritte_beratung)
 
                     # Now you can safely modify these display objects without affecting the database
@@ -375,14 +334,8 @@ def parse_law(law, display=True):
                     )
 
                 else:
-                    beschluesse = [
-                        BeschlussfassungDisplay(b) for b in position.beschluesse
-                    ]
-                    beschluesse = (
-                        merge_beschluesse(beschluesse)
-                        if len(beschluesse) > 1
-                        else beschluesse
-                    )
+                    beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
+                    beschluesse = merge_beschluesse(beschluesse) if len(beschluesse) > 1 else beschluesse
                     ai_info = text = (
                         "Die 2. Lesung im Bundestag findet statt."
                         if position.vorgangsposition == "2. Beratung"
@@ -396,10 +349,7 @@ def parse_law(law, display=True):
                     text += parse_beschluesse(law, beschluesse)
 
                 for beschluss in position.beschluesse:
-                    if (
-                        beschluss.beschlusstenor
-                        == "Feststellung der Beschlussunfähigkeit"
-                    ):
+                    if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
                     if beschluss.beschlusstenor in [
                         "Ablehnung der Vorlage",
@@ -416,8 +366,7 @@ def parse_law(law, display=True):
                             Vorgangsposition.nachtrag == False,
                             or_(
                                 Vorgangsposition.vorgangsposition == "2. Beratung",
-                                Vorgangsposition.vorgangsposition
-                                == "2. Beratung und Schlussabstimmung",
+                                Vorgangsposition.vorgangsposition == "2. Beratung und Schlussabstimmung",
                             ),
                         )
                     )
@@ -428,15 +377,11 @@ def parse_law(law, display=True):
                 if any(datum == position.datum for datum in daten_zweite_beratung):
                     continue
 
-                if position.abstract and position.abstract.startswith(
-                    "Zusammengeführt mit"
-                ):
+                if position.abstract and position.abstract.startswith("Zusammengeführt mit"):
                     info["marks_failure"] = True
                     text = create_link(position)
                 else:
-                    beschluesse = [
-                        BeschlussfassungDisplay(b) for b in position.beschluesse
-                    ]
+                    beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
                     beschluesse = merge_beschluesse(beschluesse)
                     ai_info = text = "Die 3. Lesung im Bundestag findet statt."
                     text += (
@@ -447,10 +392,7 @@ def parse_law(law, display=True):
                     text += parse_beschluesse(law, beschluesse)
 
                     for beschluss in position.beschluesse:
-                        if (
-                            beschluss.beschlusstenor
-                            == "Feststellung der Beschlussunfähigkeit"
-                        ):
+                        if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                             info["passed"] = False
                         if beschluss.beschlusstenor in [
                             "Ablehnung der Vorlage",
@@ -470,17 +412,14 @@ def parse_law(law, display=True):
                 text += parse_beschluesse(law, beschluesse)
 
                 if any(
-                    beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit"
-                    for beschluss in beschluesse
+                    beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit" for beschluss in beschluesse
                 ):
                     info["passed"] = False
 
             case (
                 "2. Durchgang" | "Durchgang"
             ):  # Durchgang, wenn initiative = Bundestag, weil es dann keinen 1. Durchgang gab
-                ai_info = text = (
-                    "Die Beratung und Abstimmung im Bundesrat finden statt."
-                )
+                ai_info = text = "Die Beratung und Abstimmung im Bundesrat finden statt."
                 info["vorgangsposition"] = "Abstimmung im Bundesrat"
 
                 beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
@@ -503,34 +442,21 @@ def parse_law(law, display=True):
                     # https://search.dip.bundestag.de/api/v1/vorgangsposition?f.vorgang=303742&apikey=I9FKdCn.hbfefNWCY336dL6x62vfwNKpoN2RZ1gp21
 
                     # We still pass this stage if va is called, as further sessions of the BR will be BR-Sitzung, not Durchgang / 2. Durchgang
-                    if beschluss.beschlusstenor.startswith(
-                        "Anrufung des Vermittlungsausschusses"
-                    ):
+                    if beschluss.beschlusstenor.startswith("Anrufung des Vermittlungsausschusses"):
                         va_angerufen = True
                         pfad.append(copy.deepcopy(abstimmung_ueber_va_vorschlag_im_br))
 
-                    if (
-                        beschluss.beschlusstenor
-                        == "Feststellung der Beschlussunfähigkeit"
-                    ):
+                    if beschluss.beschlusstenor == "Feststellung der Beschlussunfähigkeit":
                         info["passed"] = False
 
             case "Gesetzesantrag":
-                text = parse_actors(
-                    position.urheber_titel, praepositionen_nominativ, capitalize=True
-                )
-                text += (
-                    " beantragt,"
-                    if len(position.urheber_titel) == 1
-                    else " beantragen,"
-                )
+                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
+                text += " beantragt," if len(position.urheber_titel) == 1 else " beantragen,"
                 text += " der Bundesrat möge beschließen, das Gesetz im Bundestag einzubringen."
                 ai_info = text
 
             case "Plenarantrag":
-                text = "Im Plenum " + parse_actors(
-                    zuordnungen[position.zuordnung], praepositionen_genitiv
-                )
+                text = "Im Plenum " + parse_actors(zuordnungen[position.zuordnung], praepositionen_genitiv)
                 text += f" wird folgender Antrag gestellt: \n\n<strong>{position.abstract}</strong>."
                 ai_info = text
 
@@ -577,15 +503,9 @@ def parse_law(law, display=True):
                                 einspruch = False
                                 text += "\n\nDamit hat das Gesetz alle Hürden genommen. Das Gesetzgebungsverfahren ist erfolgreich beendet."
                                 info["marks_success"] = True
-                            elif (
-                                "Einspruch" in beschluss.beschlusstenor
-                            ):  # speculating, need example
+                            elif "Einspruch" in beschluss.beschlusstenor:  # speculating, need example
                                 einspruch = True
-                                pfad.append(
-                                    copy.deepcopy(
-                                        ueberstimmung_des_br_bei_einspruchsgesetz
-                                    )
-                                )
+                                pfad.append(copy.deepcopy(ueberstimmung_des_br_bei_einspruchsgesetz))
 
                 # Most likely, if either of these conditions trigger, passes is already False and the law has failed.
                 # But, maybe, the Beschlüsse were just formal stuff / a postponement so that another BR-Sitzung is coming.
@@ -609,9 +529,7 @@ def parse_law(law, display=True):
                     if position.vorgangsposition.endswith("BRg")
                     else "Unterrichtung über Anrufung des Vermittlungsausschusses durch den Bundesrat"
                 )
-                text = parse_actors(
-                    position.urheber_titel, praepositionen_nominativ, capitalize=True
-                )
+                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
                 text += f" unterrichtet den {zuordnungen[position.zuordnung]} darüber, dass sie den Vermittlungsausschuss angerufen hat."
                 ai_info = text
                 va_angerufen = True
@@ -620,39 +538,27 @@ def parse_law(law, display=True):
                 info["vorgangsposition"] = (
                     "Unterrichtung über Stellungnahme des Bundesrats und Gegenäußerung der Bundesregierung"
                 )
-                text = parse_actors(
-                    position.urheber_titel, praepositionen_nominativ, capitalize=True
-                )
+                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
                 text += f" unterrichtet den {zuordnungen[position.zuordnung]} über die Stellungnahme des Bundesrats und die Gegenäußerung der Bundesregierung."
                 ai_info = text
 
             case "Unterrichtung über Zustimmungsversagung durch den BR":
-                info["vorgangsposition"] = (
-                    "Unterrichtung über Zustimmungsversagung durch den Bundesrat."
+                info["vorgangsposition"] = "Unterrichtung über Zustimmungsversagung durch den Bundesrat."
+                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
+                text += (
+                    f" unterrichtet den {zuordnungen[position.zuordnung]} über die Zustimmungsversagung des Bundesrats."
                 )
-                text = parse_actors(
-                    position.urheber_titel, praepositionen_nominativ, capitalize=True
-                )
-                text += f" unterrichtet den {zuordnungen[position.zuordnung]} über die Zustimmungsversagung des Bundesrats."
                 ai_info = text
 
             case "Vermittlungsvorschlag" | "Einigungsvorschlag":
-                text = parse_actors(
-                    position.urheber_titel, praepositionen_nominativ, capitalize=True
-                )
+                text = parse_actors(position.urheber_titel, praepositionen_nominativ, capitalize=True)
                 text += f" legt dem {zuordnungen[position.zuordnung]} den {position.vorgangsposition} des Vermittlungsausschusses vor."
                 ai_info = text
-                abstract = (
-                    position.abstract[12:]
-                    if position.abstract.startswith("Empfehlung: ")
-                    else position.abstract
-                )
+                abstract = position.abstract[12:] if position.abstract.startswith("Empfehlung: ") else position.abstract
                 text += f" Seine Empfehlung lautet: \n<strong>{abstract}</strong>"
 
                 if position.vorgangsposition == "Vermittlungsvorschlag":
-                    pfad.append(
-                        copy.deepcopy(abstimmung_ueber_vermittlungsvorschlag_im_bt)
-                    )
+                    pfad.append(copy.deepcopy(abstimmung_ueber_vermittlungsvorschlag_im_bt))
 
             case "Abstimmung über Vermittlungsvorschlag":
                 text = f"Im {zuordnungen[position.zuordnung]} wird über den Vermittlungsvorschlag abgestimmt. Das Abstimmungsergebnis lautet: \n\n"
@@ -675,11 +581,7 @@ def parse_law(law, display=True):
                 )
 
             case "Rücknahme der Vorlage" | "Rücknahme des Antrags":
-                typ = (
-                    "die Vorlage"
-                    if position.vorgangsposition == "Rücknahme der Vorlage"
-                    else "der Antrag"
-                )
+                typ = "die Vorlage" if position.vorgangsposition == "Rücknahme der Vorlage" else "der Antrag"
                 ai_info = text = (
                     f"Im {zuordnungen[position.zuordnung]} wird {typ} zurückgenommen. Damit ist das Gesetzgebungsverfahren beendet."
                 )
@@ -712,12 +614,7 @@ def parse_law(law, display=True):
                     fstring = (
                         "%d. %B %Y"
                         if infos[i]["datetime"].year != infos[i + 1]["datetime"].year
-                        else (
-                            "%d. %B"
-                            if infos[i]["datetime"].month
-                            != infos[i + 1]["datetime"].month
-                            else "%d."
-                        )
+                        else ("%d. %B" if infos[i]["datetime"].month != infos[i + 1]["datetime"].month else "%d.")
                     )
                     date = infos[i]["datetime"].strftime(fstring)
                 else:
@@ -725,9 +622,7 @@ def parse_law(law, display=True):
 
                 news_info = {
                     "datum": date,
-                    "next_date": (
-                        infos[i + 1]["datum"] if i + 1 < len(infos) else "Gegenwart"
-                    ),
+                    "next_date": (infos[i + 1]["datum"] if i + 1 < len(infos) else "Gegenwart"),
                     "vorgangsposition": "Nachrichtenartikel",
                     "text": text,
                 }
@@ -751,10 +646,7 @@ def parse_law(law, display=True):
             )
 
         if info.get("marks_success", None):
-            if (
-                beratungsstand
-                == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten"
-            ):
+            if beratungsstand == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten":
                 info[
                     "text"
                 ] += "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
@@ -777,9 +669,7 @@ def parse_law(law, display=True):
                         "text"
                     ] += f'\n\nDas Gesetz wurde <strong>am {verkuendung.verkuendungsdatum.strftime("%d. %B %Y")} verkündet</strong>'
                     info["text"] += (
-                        f' (<a href="{verkuendung.pdf_url}">Link zur Verkündung</a>).'
-                        if verkuendung.pdf_url
-                        else "."
+                        f' (<a href="{verkuendung.pdf_url}">Link zur Verkündung</a>).' if verkuendung.pdf_url else "."
                     )
             else:
                 info[
@@ -788,18 +678,14 @@ def parse_law(law, display=True):
 
             if law.inkrafttreten:
                 for inkraft in law.inkrafttreten:
-                    erlaeuterung = (
-                        f" ({inkraft.erlaeuterung})" if inkraft.erlaeuterung else " "
-                    )
+                    erlaeuterung = f" ({inkraft.erlaeuterung})" if inkraft.erlaeuterung else " "
                     info["text"] += (
                         f"\n\nDas Gesetz{erlaeuterung} ist <strong>am {inkraft.datum.strftime("%d. %B %Y")} in Kraft getreten</strong>."
                         if inkraft.datum <= datetime.datetime.now().date()
                         else f"\n\nDas Gesetz{erlaeuterung} <strong>wird am {inkraft.datum.strftime("%d. %B %Y")} in Kraft treten</strong>."
                     )
             else:
-                info[
-                    "text"
-                ] += "\n\nZum <strong>Datum des Inkrafttretens</strong> ist noch nichts bekannt."
+                info["text"] += "\n\nZum <strong>Datum des Inkrafttretens</strong> ist noch nichts bekannt."
 
             if beratungsstand in {
                 "Teile des Gesetzes für nichtig erklärt",
@@ -845,10 +731,7 @@ def parse_law(law, display=True):
     for station in remaining:
         station["has_happened"] = False
         # check for cases where I introduced ambiguity, currently only "Beschlussempfehlung und Bericht", may simplify later
-        if (
-            type(station["vorgangsposition"]) == list
-            and len(station["vorgangsposition"]) > 1
-        ):
+        if type(station["vorgangsposition"]) == list and len(station["vorgangsposition"]) > 1:
             station["vorgangsposition"] = station["vorgangsposition"][0]
         infos.append(station)
 
@@ -882,10 +765,7 @@ def autocomplete():
         },
     )
 
-    suggestions = [
-        {"id": hit["_id"], "titel": hit["_source"]["titel"]}
-        for hit in response["hits"]["hits"]
-    ]
+    suggestions = [{"id": hit["_id"], "titel": hit["_source"]["titel"]} for hit in response["hits"]["hits"]]
     return jsonify(suggestions)
 
 
@@ -912,16 +792,14 @@ def chat():
             {
                 "Dokument id": i,
                 "Herausgeber dieses Dokuments": (
-                    "Bundestag"
-                    if d.herausgeber == "BT"
-                    else "Bundesrat" if d.herausgeber == "BR" else "Unbekannt"
+                    "Bundestag" if d.herausgeber == "BT" else "Bundesrat" if d.herausgeber == "BR" else "Unbekannt"
                 ),
                 "Zu diesem Dokument gehörende Vorgangsposition innerhalb des Gesetzgebungsverfahrens": d.vorgangsposition,
             }
             for i, d in enumerate(dokumente)
         ]
 
-        yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Zu diesem Gesetz liegen {len(dokumente)} Dokumente vor. <br>Durchsuche den Bestand nach für die Frage relevanten Dokumenten. Dies kann einen Augenblick dauern...'})}\n\n"
+        yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Zu diesem Gesetz liegen {len(dokumente)} Dokumente vor. <br>Filtere nach für die Frage relevanten Dokumenten. Dies kann einen Augenblick dauern...'})}\n\n"
 
         filter_documents_schema = {
             "name": "Filter_Dokumente_Schema",
@@ -989,24 +867,17 @@ def chat():
             if ai_response[i]["passend"] == 0:
                 dokumente_list.pop(i)
             else:
-                dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[
-                    i
-                ].markdown
+                dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[i].markdown
 
         doc_list_message = "Folgende Dokumente werden für die Beantwortung verwendet:"
         for i, doc in enumerate(dokumente_list):
             doc_list_message += f"\n\n**{i+1}. Dokument**<br>"
-            doc_list_message += (
-                f"Herausgeber: {doc['Herausgeber dieses Dokuments']}<br>"
-            )
+            doc_list_message += f"Herausgeber: {doc['Herausgeber dieses Dokuments']}<br>"
             doc_list_message += f"Vorgangsposition: {doc['Zu diesem Dokument gehörende Vorgangsposition innerhalb des Gesetzgebungsverfahrens']}<br>"
 
         yield f"data: {json.dumps({'stage': 'documents', 'chunk': doc_list_message})}\n\n"
 
-        word_count = sum(
-            len(doc["Der Inhalt des Dokuments lautet:"].split())
-            for doc in dokumente_list
-        )
+        word_count = sum(len(doc["Der Inhalt des Dokuments lautet:"].split()) for doc in dokumente_list)
 
         yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Generiere eine Antwort auf Basis dieser Dokumente. Die Dokumente umfassen insgesamt {word_count} Wörter auf {int(word_count/700)} Seiten. Dies kann einen Augenblick dauern...'})}\n\n"
 
@@ -1031,6 +902,8 @@ def chat():
             streaming_response = get_text_data_from_ai(
                 client,
                 answer_question_messages,
+                # models=["meta-llama/llama-4-maverick"],
+                # models=["google/gemini-2.5-pro-preview-03-25"],
                 models=["google/gemini-2.5-pro-exp-03-25:free"],
                 stream=True,
             )
