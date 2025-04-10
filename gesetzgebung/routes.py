@@ -902,9 +902,9 @@ def chat():
             streaming_response = get_text_data_from_ai(
                 client,
                 answer_question_messages,
-                # models=["meta-llama/llama-4-maverick"],
+                models=["meta-llama/llama-4-maverick"],
                 # models=["google/gemini-2.5-pro-preview-03-25"],
-                models=["google/gemini-2.5-pro-exp-03-25:free"],
+                # models=["google/gemini-2.5-pro-exp-03-25:free"],
                 stream=True,
             )
 
