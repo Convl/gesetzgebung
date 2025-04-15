@@ -8,6 +8,59 @@ import json
 import time
 from urllib.parse import quote
 
+
+class PositionInfo:
+    def __init__(self, position):
+        """Initialize a PositionInfo object from a position object."""
+        self.id = position.id
+        self.datum = position.datum.strftime("%d. %B %Y")
+        self.datetime = position.datum
+        self.vorgangsposition = position.vorgangsposition
+        self.link = f'<a href="{position.fundstelle.mapped_pdf_url if position.fundstelle.mapped_pdf_url else position.fundstelle.pdf_url}">Originaldokument</a>'
+        self.ai_info = ""
+        self.has_happened = True
+        self.passed = True
+        self.marks_failure = False
+        self.marks_success = False
+        self.position = position
+        self.text = ""
+
+    def to_dict(self):
+        """Convert the PositionInfo object to a dictionary for JSON serialization and template rendering."""
+        return {
+            "id": self.id,
+            "datum": self.datum,
+            "datetime": self.datetime,
+            "vorgangsposition": self.vorgangsposition,
+            "link": self.link,
+            "ai_info": self.ai_info,
+            "has_happened": self.has_happened,
+            "passed": self.passed,
+            "marks_failure": self.marks_failure,
+            "marks_success": self.marks_success,
+            "position": self.position,
+            "text": self.text,
+        }
+
+    @classmethod
+    def create_future_position(cls, vorgangsposition, text):
+        """Create a PositionInfo object for a future position in the legislative process."""
+        instance = cls.__new__(cls)
+        instance.id = None
+        instance.datum = None
+        instance.datetime = None
+        instance.vorgangsposition = vorgangsposition
+        instance.link = None
+        instance.ai_info = ""
+        instance.has_happened = False
+        instance.passed = True
+        instance.marks_failure = False
+        instance.marks_success = False
+        instance.position = None
+        instance.text = text
+        return instance
+
+
 bundeslaender = {
     "Bayern",
     "Niedersachsen",
@@ -146,9 +199,7 @@ abstimmung_ueber_va_vorschlag_im_br = {
     "vorgangsposition": "BR-Sitzung",
     "text": "Der Bundesrat muss noch über den Vorschlagg des Vermittlungsausschusses abstimmen.",
 }
-ueberstimmung_des_br_bei_einspruchsgesetz = {
-    "text": "Der Bundestag muss den vom Bundesrat erhobenen Einspruch noch überstimmen."
-}  # TODO: kann noch nicht ausgefüllt werden mangels Beispielsfall
+ueberstimmung_des_br_bei_einspruchsgesetz = {"text": "Der Bundestag muss den vom Bundesrat erhobenen Einspruch noch überstimmen."}  # TODO: kann noch nicht ausgefüllt werden mangels Beispielsfall
 
 # TODO: pfad bundestag anders bei bes. Eilbedürftigkeit?
 basispfad = [
@@ -254,14 +305,7 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
                         drucksachetyp = "Dokument"
 
                     anmerkung = (
-                        beschluss.abstimm_ergebnis_bemerkung
-                        if beschluss.abstimm_ergebnis_bemerkung
-                        and beschluss.abstimm_ergebnis_bemerkung.startswith(", Anmerkung")
-                        else (
-                            f", Stimmen(pro/contra/Enthaltung): {beschluss.abstimm_ergebnis_bemerkung}"
-                            if beschluss.abstimm_ergebnis_bemerkung
-                            else ""
-                        )
+                        beschluss.abstimm_ergebnis_bemerkung if beschluss.abstimm_ergebnis_bemerkung and beschluss.abstimm_ergebnis_bemerkung.startswith(", Anmerkung") else (f", Stimmen(pro/contra/Enthaltung): {beschluss.abstimm_ergebnis_bemerkung}" if beschluss.abstimm_ergebnis_bemerkung else "")
                     )
 
                     text += (
@@ -274,9 +318,7 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
                 text += "</ul>"
 
         else:
-            text += (
-                f" (Anmerkung: {beschluss.abstimm_ergebnis_bemerkung})" if beschluss.abstimm_ergebnis_bemerkung else ""
-            )
+            text += f" (Anmerkung: {beschluss.abstimm_ergebnis_bemerkung})" if beschluss.abstimm_ergebnis_bemerkung else ""
 
         text += "</li>"
 
@@ -285,9 +327,7 @@ def parse_beschluesse(law, beschluesse: List[Beschlussfassung]) -> str:  #
     return text
 
 
-def merge_beschluesse(
-    beschluesse: List[BeschlussfassungDisplay], zweite_und_dritte_beratung=False
-) -> List[BeschlussfassungDisplay]:
+def merge_beschluesse(beschluesse: List[BeschlussfassungDisplay], zweite_und_dritte_beratung=False) -> List[BeschlussfassungDisplay]:
     """Merge Beschlüsse which differ only in their .abstimm_ergebnis_bemerkung by concatenating their abstimm_ergebnis_bemerkung.
     Can merge Beschlüsse from a single Beratung or from a second and third Beratung. In the latter case, assumes that all beschluesse from
     the second beratung come first, followed by all from the third beratung, and takes a dict zweite_und_dritte_beratung to indicates which
@@ -320,10 +360,7 @@ def merge_beschluesse(
             if j in merged_indices:
                 continue
 
-            if (
-                beschluesse[i].dokumentnummer == beschluesse[j].dokumentnummer
-                and beschluesse[i].beschlusstenor == beschluesse[j].beschlusstenor
-            ):
+            if beschluesse[i].dokumentnummer == beschluesse[j].dokumentnummer and beschluesse[i].beschlusstenor == beschluesse[j].beschlusstenor:
 
                 if beschluesse[i].abstimm_ergebnis_bemerkung != beschluesse[j].abstimm_ergebnis_bemerkung:
                     contains_beschluesse_from.add(beschluesse[j].positions_id)
@@ -337,25 +374,13 @@ def merge_beschluesse(
                         if beschluesse[j].positions_id != beschluesse[i].positions_id:
 
                             if first_beschluss_from_dritte_beratung:
-                                merged.abstimm_ergebnis_bemerkung = (
-                                    ", Anmerkung aus der zweiten Beratung: " + merged.abstimm_ergebnis_bemerkung
-                                    if merged.abstimm_ergebnis_bemerkung
-                                    else ""
-                                )
+                                merged.abstimm_ergebnis_bemerkung = ", Anmerkung aus der zweiten Beratung: " + merged.abstimm_ergebnis_bemerkung if merged.abstimm_ergebnis_bemerkung else ""
 
-                            merged.abstimm_ergebnis_bemerkung += (
-                                ", Anmerkung aus der dritten Beratung: " + beschluesse[j].abstimm_ergebnis_bemerkung
-                                if beschluesse[j].abstimm_ergebnis_bemerkung
-                                else ""
-                            )
+                            merged.abstimm_ergebnis_bemerkung += ", Anmerkung aus der dritten Beratung: " + beschluesse[j].abstimm_ergebnis_bemerkung if beschluesse[j].abstimm_ergebnis_bemerkung else ""
 
                             first_beschluss_from_dritte_beratung = False
                         else:
-                            merged.abstimm_ergebnis_bemerkung += (
-                                f" // {beschluesse[j].abstimm_ergebnis_bemerkung}"
-                                if beschluesse[j].abstimm_ergebnis_bemerkung
-                                else ""
-                            )
+                            merged.abstimm_ergebnis_bemerkung += f" // {beschluesse[j].abstimm_ergebnis_bemerkung}" if beschluesse[j].abstimm_ergebnis_bemerkung else ""
 
                 merged_indices.add(j)
                 contains_beschluesse_from.add(beschluesse[j].positions_id)
@@ -464,9 +489,7 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None, mo
             return ai_response
 
         except Exception as e:
-            print(
-                f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds."
-            )
+            print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
             time.sleep(delay)
             delay *= 2
 
@@ -477,7 +500,7 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None, mo
     )
 
 
-def get_text_data_from_ai(client, messages, models=None, stream=False):
+def get_text_data_from_ai(client, messages, models=None, stream=False, temperature=0.5):
     # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
     models = models or ["deepseek/deepseek-r1"]
     if not stream:
@@ -490,7 +513,7 @@ def get_text_data_from_ai(client, messages, models=None, stream=False):
                     extra_body={
                         "models": models[i + 1 :],
                         "provider": {"sort": "throughput"},
-                        "temperature": 0.5,
+                        "temperature": temperature,
                     },
                     messages=messages,
                 )
@@ -505,9 +528,7 @@ def get_text_data_from_ai(client, messages, models=None, stream=False):
                 return ai_response
 
             except Exception as e:
-                print(
-                    f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds."
-                )
+                print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
                 time.sleep(delay)
                 delay *= 2
 

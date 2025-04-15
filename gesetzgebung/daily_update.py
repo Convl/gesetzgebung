@@ -138,9 +138,7 @@ def daily_update():
             response_data = response.json()
             for item in response_data.get("documents", []):
                 law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben()
-                print(
-                    f"Processing Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}"
-                )
+                print(f"Processing Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
 
                 # if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
                 law.dip_id = item.get("id", None)
@@ -170,9 +168,7 @@ def daily_update():
 
                 update_law_in_es(law)
 
-                print(
-                    f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}"
-                )
+                print(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
 
                 time.sleep(1)
 
@@ -196,23 +192,12 @@ def daily_update():
         gn = GNews(language="de", country="DE")
         now = datetime.datetime.now().date()
 
-        all_candidates = (
-            db.session.query(NewsUpdateCandidate)
-            .join(Vorgangsposition)
-            .join(GesetzesVorhaben)
-            .order_by(GesetzesVorhaben.id, Vorgangsposition.datum)
-            .all()
-        )
-        candidate_groups = {
-            law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True)
-            for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)
-        }
+        all_candidates = db.session.query(NewsUpdateCandidate).join(Vorgangsposition).join(GesetzesVorhaben).order_by(GesetzesVorhaben.id, Vorgangsposition.datum).all()
+        candidate_groups = {law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True) for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)}
 
         saved_for_rollback = []
         for law_id, candidates in candidate_groups.items():
-            print(
-                f"*** Starting news update for law with id {law_id}, update candidate ids: {[c.id for c in candidates]} ***"
-            )
+            print(f"*** Starting news update for law with id {law_id}, update candidate ids: {[c.id for c in candidates]} ***")
             newer_exists = False
             law = get_law_by_id(law_id)
             infos = parse_law(law, display=False)
@@ -223,10 +208,7 @@ def daily_update():
                     completion_state = "Das Ereignis, das den Start dieses Zeitraums markiert, markiert zugleich den erfolgreichen Abschluss des Gesetzgebungsverfahrens."
                 elif info["marks_failure"]:
                     completion_state = "Das Ereignis, das den Start dieses Zeitraums markiert, markiert zugleich das Scheitern des Gesetzgebungsverfahrens."
-            completion_state = (
-                completion_state
-                or "Das Ereignis, das den Start dieses Zeitraums markiert, ist das momentan aktuellste im laufenden Gesetzgebungsverfahren."
-            )
+            completion_state = completion_state or "Das Ereignis, das den Start dieses Zeitraums markiert, ist das momentan aktuellste im laufenden Gesetzgebungsverfahren."
             dummy_info = {
                 "datetime": now,
                 "ai_info": f"{completion_state} Die mit diesem Zeitraum verknüpften Nachrichtenartikel reichen somit bis zum heutigen Tag.",
@@ -234,12 +216,8 @@ def daily_update():
 
             for i, candidate in enumerate(candidates):
                 position = candidate.position
-                info = next(
-                    inf for inf in infos if inf["id"] == position.id
-                )  # add a default here in case no match is found? That shouldn't be possible though
-                next_info = (
-                    next(inf for inf in infos if inf["id"] == candidates[i - 1].position.id) if i > 0 else dummy_info
-                )
+                info = next(inf for inf in infos if inf["id"] == position.id)  # add a default here in case no match is found? That shouldn't be possible though
+                next_info = next(inf for inf in infos if inf["id"] == candidates[i - 1].position.id) if i > 0 else dummy_info
 
                 # not due for its final update (newer_exists=False), has already been updated (next_update=True), not due for next update(next_update>now) -> skip
                 if not newer_exists and candidate.next_update and candidate.next_update > now:
@@ -272,9 +250,7 @@ def daily_update():
                     candidate.last_update = now
                     # simpler version to replace 3 lines below, but does not handle initial runs with historical data well: candidate.next_update = (now + NEWS_UPDATE_INTERVALS[min(len(NEWS_UPDATE_INTERVALS) - 1, candidate.update_count)])
                     offset = 0
-                    while (
-                        position.datum + NEWS_UPDATE_INTERVALS[offset] < now and offset < len(NEWS_UPDATE_INTERVALS) - 1
-                    ):
+                    while position.datum + NEWS_UPDATE_INTERVALS[offset] < now and offset < len(NEWS_UPDATE_INTERVALS) - 1:
                         offset += 1
                     candidate.next_update = position.datum + NEWS_UPDATE_INTERVALS[offset]
                     candidate.update_count += 1
@@ -360,13 +336,9 @@ def update_positionen(dip_id, law):
     new_position_dates = []
     while response.ok and cursor != response.json().get("cursor", None):
         for item in response.json().get("documents", []):
-            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None and item.get(
-                "gang", None
-            ) is True
+            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None and item.get("gang", None) is True
             position = position or Vorgangsposition()
-            if not position.aktualisiert or position.aktualisiert != item.get(
-                "aktualisiert", None
-            ):  # may wanna check item.get("gang", False) here
+            if not position.aktualisiert or position.aktualisiert != item.get("aktualisiert", None):  # may wanna check item.get("gang", False) here
                 position.dip_id = item.get("id", None)
                 position.vorgangsposition = item.get("vorgangsposition", None)
                 position.zuordnung = item.get("zuordnung", None)
@@ -427,9 +399,7 @@ def update_beschluesse(position, beschlussfassungen):
 
 
 def update_fundstelle(position, dip_fundstelle):
-    fundstelle = (
-        db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none() or Fundstelle()
-    )
+    fundstelle = db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none() or Fundstelle()
     fundstelle.dip_id = dip_fundstelle.get("id", None)
     fundstelle.dokumentnummer = dip_fundstelle.get("dokumentnummer", None)
     fundstelle.drucksachetyp = dip_fundstelle.get("drucksachetyp", None)
@@ -449,9 +419,7 @@ def update_fundstelle(position, dip_fundstelle):
                 anfangsseite_internal = fundstelle.anfangsseite
                 anfangsseite = int(anfangsseite_internal) - offset
                 endseite = int(fundstelle.endseite) - offset
-                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-                    f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
-                )
+                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{anfangsseite_internal}", f"#page={anfangsseite}")
             except Exception as e:
                 report_error(
                     "Error mapping destinations to pages",
@@ -494,9 +462,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
             response.raise_for_status()
             pdf = pypdfium2.PdfDocument(response.content)
             if len(pdf) > 500:
-                print(
-                    f"Skipping fundstelle {fundstelle.id} with url {fundstelle.pdf_url} because it has more than 500 pages"
-                )
+                print(f"Skipping fundstelle {fundstelle.id} with url {fundstelle.pdf_url} because it has more than 500 pages")
                 return
 
     except Exception as e:
@@ -509,11 +475,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
     dokument = Dokument()
     dokument.pdf_url = fundstelle.pdf_url
     # make below >= to include cases where anfangsseite and endseite are on the same page, but those are usually not interesting
-    if (
-        fundstelle.anfangsseite_mapped
-        and fundstelle.endseite_mapped
-        and fundstelle.endseite_mapped >= fundstelle.anfangsseite_mapped
-    ):
+    if fundstelle.anfangsseite_mapped and fundstelle.endseite_mapped and fundstelle.endseite_mapped >= fundstelle.anfangsseite_mapped:
         dokument.markdown = (
             converter.convert(
                 fundstelle.pdf_url,
@@ -524,9 +486,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
             .replace("  ", " ")
         )
     else:
-        dokument.markdown = (
-            converter.convert(fundstelle.pdf_url).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
-        )
+        dokument.markdown = converter.convert(fundstelle.pdf_url).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
 
     try:
         test = db.session.query(Vorgangsposition).first()
@@ -597,9 +557,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 no_news_found += 1
                 raise Exception("did not get a response from gnews")
         except Exception as e:
-            print(
-                f"Error fetching news from gnews for query: {query}. Error: {e}. Start date: {gn.start_date}. End date: {gn.end_date}"
-            )
+            print(f"Error fetching news from gnews for query: {query}. Error: {e}. Start date: {gn.start_date}. End date: {gn.end_date}")
             continue
 
         no_news_found = 0
@@ -653,9 +611,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                     "role": "user",
                 },
             ]
-            ai_response = get_structured_data_from_ai(
-                client, evaluate_results_messages, evaluate_results_schema, "artikel"
-            )
+            ai_response = get_structured_data_from_ai(client, evaluate_results_messages, evaluate_results_schema, "artikel")
 
             for i in range(len(gnews_response) - 1, -1, -1):
                 if ai_response[i]["passend"] in {0, "0"}:
@@ -708,11 +664,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 print(f"Error parsing news article: {e}")
                 continue
 
-            if (
-                not news_article.is_valid_body()
-                or len(news_article.text) < MINIMUM_ARTICLE_LENGTH
-                or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH
-            ):
+            if not news_article.is_valid_body() or len(news_article.text) < MINIMUM_ARTICLE_LENGTH or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH:
                 continue
 
             # sometimes articles that got updated later are included in the response from Google News. This filters out some of those, though still not all.
@@ -723,9 +675,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
             news_info["article_data"].append(article)
 
     if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
-        print(
-            f"Only found {len(news_info['artikel'])} usable articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary."
-        )
+        print(f"Only found {len(news_info['artikel'])} usable articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
         return news_info
 
     # if a summary already exists
@@ -733,9 +683,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # ...no need to make a new one if the old one was based on a sufficient number of articles and we haven't seen at least a 1.5x increase in article count since then
         if news_info["relevant_hits"] > position.summary.articles_found >= IDEAL_ARTICLE_COUNT:
             if news_info["relevant_hits"] < position.summary.articles_found * 1.5:
-                print(
-                    f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed."
-                )
+                print(f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed.")
                 return news_info
         # ...obviously, don't make a new one if we haven't seen an increase in article count at all, either
         elif news_info["relevant_hits"] <= position.summary.articles_found:
@@ -747,10 +695,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # which is not reflected in the articles chosen for summary creation. I might change the above code to account for this possibility.
         # For now, though, I trust that Google News orders its results such that new articles containing new developments will be amongst the first
         # to get processed, and therefore end up in the selection of articles for the new summary.)
-        if all(
-            any(new_article["url"] == existing_article.url for existing_article in position.summary.articles)
-            for new_article in news_info["article_data"]
-        ):
+        if all(any(new_article["url"] == existing_article.url for existing_article in position.summary.articles) for new_article in news_info["article_data"]):
             print("Old and new articles identical, no need to update")
             return news_info
 
@@ -820,10 +765,7 @@ def consider_rollback(saved_candidates):
         error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT} queries in a row, test query only returned {test_result_count} results.\n"
         try:
             for original in saved_candidates:
-                candidate = (
-                    db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none()
-                    or NewsUpdateCandidate()
-                )
+                candidate = db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none() or NewsUpdateCandidate()
                 candidate.last_update = original.last_update
                 candidate.next_update = original.next_update
                 candidate.update_count = original.update_count
@@ -834,10 +776,7 @@ def consider_rollback(saved_candidates):
             error_message += f"Error rolling back news update candidates: {e}\nManual rollback required\n"
         finally:
             error_message += "Affected candidates:\n"
-            error_message += "\n".join(
-                f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}"
-                for original in saved_candidates
-            )
+            error_message += "\n".join(f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" for original in saved_candidates)
             error_message += f"\nExiting daily update at {datetime.datetime.now()}"
             report_error("Google News is unresponsive", error_message, True)
     else:
@@ -904,9 +843,7 @@ def generate_search_queries(client, law):
 
 def extract_shorthand(titel):
     # Extract the shorthand (not the abbreviation) from the title of a law, if there is one
-    parentheses_start = max(
-        6, titel.rfind("(")
-    )  # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
+    parentheses_start = max(6, titel.rfind("("))  # There will never be a ( before index 6, max is just in case there is a ) without a ( in the title
     abbreviation_start = parentheses_start + 1
     while titel[abbreviation_start].isdigit() or titel[abbreviation_start] in {
         ".",
@@ -917,16 +854,8 @@ def extract_shorthand(titel):
         abbreviation_start,
         titel.find("- und ", abbreviation_start, len(titel) - 1) + len("- und "),
     )  # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
-    abbreviation_end = (
-        titel.find(" - ", abbreviation_start, len(titel) - 1)
-        if titel.find(" - ", abbreviation_start, len(titel) - 1) > 0
-        else len(titel) - 1
-    )  # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
-    abbreviation_end = (
-        titel.find(" – ", abbreviation_start, len(titel) - 1)
-        if titel.find(" – ", abbreviation_start, len(titel) - 1) > 0
-        else len(titel) - 1
-    )  # same thing, except with long dash
+    abbreviation_end = titel.find(" - ", abbreviation_start, len(titel) - 1) if titel.find(" - ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1  # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
+    abbreviation_end = titel.find(" – ", abbreviation_start, len(titel) - 1) if titel.find(" – ", abbreviation_start, len(titel) - 1) > 0 else len(titel) - 1  # same thing, except with long dash
     abbreviation = f"{titel[abbreviation_start:abbreviation_end]}*"
     return abbreviation
 
