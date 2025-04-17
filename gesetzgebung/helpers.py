@@ -1,4 +1,5 @@
 from gesetzgebung.models import *
+from gesetzgebung.logger import get_logger
 import re
 import time
 import os
@@ -8,58 +9,7 @@ import json
 import time
 from urllib.parse import quote
 
-
-class PositionInfo:
-    def __init__(self, position):
-        """Initialize a PositionInfo object from a position object."""
-        self.id = position.id
-        self.datum = position.datum.strftime("%d. %B %Y")
-        self.datetime = position.datum
-        self.vorgangsposition = position.vorgangsposition
-        self.link = f'<a href="{position.fundstelle.mapped_pdf_url if position.fundstelle.mapped_pdf_url else position.fundstelle.pdf_url}">Originaldokument</a>'
-        self.ai_info = ""
-        self.has_happened = True
-        self.passed = True
-        self.marks_failure = False
-        self.marks_success = False
-        self.position = position
-        self.text = ""
-
-    def to_dict(self):
-        """Convert the PositionInfo object to a dictionary for JSON serialization and template rendering."""
-        return {
-            "id": self.id,
-            "datum": self.datum,
-            "datetime": self.datetime,
-            "vorgangsposition": self.vorgangsposition,
-            "link": self.link,
-            "ai_info": self.ai_info,
-            "has_happened": self.has_happened,
-            "passed": self.passed,
-            "marks_failure": self.marks_failure,
-            "marks_success": self.marks_success,
-            "position": self.position,
-            "text": self.text,
-        }
-
-    @classmethod
-    def create_future_position(cls, vorgangsposition, text):
-        """Create a PositionInfo object for a future position in the legislative process."""
-        instance = cls.__new__(cls)
-        instance.id = None
-        instance.datum = None
-        instance.datetime = None
-        instance.vorgangsposition = vorgangsposition
-        instance.link = None
-        instance.ai_info = ""
-        instance.has_happened = False
-        instance.passed = True
-        instance.marks_failure = False
-        instance.marks_success = False
-        instance.position = None
-        instance.text = text
-        return instance
-
+helpers_logger = get_logger(__name__)
 
 bundeslaender = {
     "Bayern",
@@ -493,10 +443,9 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None, mo
             time.sleep(delay)
             delay *= 2
 
-    report_error(
+    helpers_logger.critical(
         "Error getting structured data from AI",
         f"Could not get structured data from AI. Time: {datetime.datetime.now()}, Messages: {messages}. Schema: {schema}. Subfield: {subfield}.",
-        True,
     )
 
 
@@ -532,10 +481,9 @@ def get_text_data_from_ai(client, messages, models=None, stream=False, temperatu
                 time.sleep(delay)
                 delay *= 2
 
-        report_error(
+        helpers_logger.critical(
             "Error getting structured data from AI",
             f"Could not get text data from AI. Time: {datetime.datetime.now()}, Messages: {messages}.",
-            True,
         )
     else:
         for i, model in enumerate(models):
@@ -616,10 +564,9 @@ def get_text_data_from_ai(client, messages, models=None, stream=False, temperatu
 
                 return error_generator()
 
-    report_error(
+    helpers_logger.critical(
         "Error getting streaming data from AI",
         f"All models failed for streaming request. Time: {datetime.datetime.now()}, Messages: {messages}.",
-        True,
     )
 
     # Return an empty generator

@@ -7,11 +7,9 @@ from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
 from gesetzgebung.routes import parse_law
-from gesetzgebung.helpers import (
-    report_error,
-    get_structured_data_from_ai,
-    get_text_data_from_ai,
-)
+from gesetzgebung.helpers import get_structured_data_from_ai, get_text_data_from_ai
+from gesetzgebung.logger import get_logger
+from typing import List
 
 # from elasticsearch.exceptions import NotFoundError
 from elasticsearch7.exceptions import NotFoundError
@@ -23,7 +21,6 @@ from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
 import re
 from itertools import groupby
-
 
 ### Below stuff was experimental, not currently needed
 # from langchain_docling import DoclingLoader
@@ -39,33 +36,33 @@ from itertools import groupby
 # embeddings = OpenAIEmbeddings()
 
 # ### Below stuff is for storing PDFs in the database
-# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
-# from docling.chunking import HybridChunker
-# from docling.document_converter import DocumentConverter, PdfFormatOption
-# from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-# from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
-# from docling.datamodel.base_models import InputFormat
-# import pypdfium2
-# import pypdfium2.raw as pdfium_c
-# import ctypes
+from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
+from docling.chunking import HybridChunker
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
+from docling.datamodel.pipeline_options import PdfPipelineOptions, AcceleratorOptions
+from docling.datamodel.base_models import InputFormat
+import pypdfium2
+import pypdfium2.raw as pdfium_c
+import ctypes
 
+pipeline_options = PdfPipelineOptions()
+pipeline_options.do_ocr = True
+pipeline_options.do_table_structure = True
+pipeline_options.table_structure_options.do_cell_matching = True
 
-# pipeline_options = PdfPipelineOptions()
-# pipeline_options.do_ocr = True
-# pipeline_options.do_table_structure = True
-# pipeline_options.table_structure_options.do_cell_matching = True
-
-# converter = DocumentConverter(
-#     format_options={
-#         InputFormat.PDF: PdfFormatOption(
-#             pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
-#         )
-#     }
-# )
+converter = DocumentConverter(
+    format_options={
+        InputFormat.PDF: PdfFormatOption(
+            pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
+        )
+    }
+)
 
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
+logger = get_logger("daily_update_logger")
 
 DIP_API_KEY = "I9FKdCn.hbfefNWCY336dL6x62vfwNKpoN2RZ1gp21"
 DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"
@@ -103,16 +100,16 @@ no_news_found = 0
 
 def daily_update():
     with app.app_context():
+        store_markdown()
+        return None
+        
         # just in case daily update is launched while previous one is still active
         if is_update_active():
-            report_error(
+            logger.critical(
                 "Daily update launched while still in progress.",
                 f"Immediately terminating new process at {datetime.datetime.now()}.",
-                True,
             )
         set_update_active(True)
-
-        return None
 
         # ----------- Phase I: Enter new information from DIP into database ---------- #
         params = (
@@ -132,34 +129,38 @@ def daily_update():
         cursor = ""
 
         response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
-        print("Starting daily update")
+        logger.info("Starting daily update")
 
         while response.ok and cursor != response.json().get("cursor", None):
             response_data = response.json()
             for item in response_data.get("documents", []):
-                law = get_law_by_dip_id(item.get("id", None)) or GesetzesVorhaben()
-                print(f"Processing Item id: {item.get("id", None)}, item id type: {type(item.get("id", None))}, law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}")
+                dip_id = item.get("id", None)
+                logger.debug(f"Proccesing law with dip id: {dip_id}, title: {item.get("titel", None)}")
+                if (law := get_law_by_dip_id(dip_id)):
+                    logger.debug(f"A law with this dip id already exists in the database with internal id: {law.id}")
+                else:
+                    law = GesetzesVorhaben()
+                    logger.info(f"This law does not yet exist in the database. Creating new entry with dip id {dip_id}, titel: {item.get("titel", None)}.")
 
                 # if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
                 law.dip_id = item.get("id", None)
                 law.abstract = item.get("abstract", None)
                 if not law.beratungsstand or law.beratungsstand[-1] != item.get("beratungsstand", None):
                     law.beratungsstand.append(item.get("beratungsstand", None))
-                law.sachgebiet = [sg for sg in item.get("sachgebiet", [])]
-                law.wahlperiode = int(item.get("wahlperiode", None))
-                law.zustimmungsbeduerftigkeit = [zb for zb in item.get("zustimmungsbeduerftigkeit", [])]
-                law.initiative = [ini for ini in item.get("initiative", [])]
+                law.sachgebiet = item.get("sachgebiet", []).copy()
+                law.wahlperiode = int(item.get("wahlperiode", 0))
+                law.zustimmungsbeduerftigkeit = item.get("zustimmungsbeduerftigkeit", []).copy()
+                law.initiative = item.get("initiative", []).copy()
                 law.aktualisiert = item.get("aktualisiert", None)
                 law.titel = item.get("titel", None)
                 law.datum = item.get("datum", None)
 
-                update_positionen(item.get("id", None), law)
+                # TODO: db.session.add(law) / db.session.commit() used to come after update_positionen, now moved into that function to catch old laws, change back if it causes issues though.
 
-                db.session.add(law)
-                db.session.commit()
+                update_positionen(law)
 
                 if item.get("verkuendung", []):
-                    update_verkuendung(item.get("verkuendung", []), law)
+                    update_verkuendungen(item.get("verkuendung", []), law)
 
                 if item.get("inkrafttreten", []):
                     update_inkrafttreten(item.get("inkrafttreten", []), law)
@@ -168,15 +169,12 @@ def daily_update():
 
                 update_law_in_es(law)
 
-                print(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
+                logger.debug(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
 
                 time.sleep(1)
 
-            print(f"old cursor: {cursor}")
-            params["cursor"] = cursor = response.json().get("cursor", None)
-            print(f"new cursor: {cursor}")
+            params["cursor"] = cursor = response_data.get("cursor", None)
             response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
-            print(f"next cursor: {response.json().get("cursor", None)}")
 
         set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
@@ -196,8 +194,9 @@ def daily_update():
         candidate_groups = {law_id: sorted(list(group), key=lambda c: c.position.datum, reverse=True) for law_id, group in groupby(all_candidates, key=lambda c: c.position.gesetz.id)}
 
         saved_for_rollback = []
+
         for law_id, candidates in candidate_groups.items():
-            print(f"*** Starting news update for law with id {law_id}, update candidate ids: {[c.id for c in candidates]} ***")
+            logger.debug(f"*** Starting news update for law with id {law_id}, update candidate ids: {[c.id for c in candidates]} ***")
             newer_exists = False
             law = get_law_by_id(law_id)
             infos = parse_law(law, display=False)
@@ -214,6 +213,13 @@ def daily_update():
                 "ai_info": f"{completion_state} Die mit diesem Zeitraum verknüpften Nachrichtenartikel reichen somit bis zum heutigen Tag.",
             }
 
+            # There is a sublist of NewsUpdateCandidates for each law. If we can pop the first of these sublists, and have the items of the remaining sublists be > the number of times gnews returned 0, popping the first sublist is safe to do.
+            if sum(len(candidates_of_a_given_law) for candidates_of_a_given_law in saved_for_rollback[1:]) > no_news_found:
+                saved_for_rollback.pop(0)
+
+            # New NewsUpdateCandidate sublist for new law
+            saved_for_rollback.append([])
+
             for i, candidate in enumerate(candidates):
                 position = candidate.position
                 info = next(inf for inf in infos if inf["id"] == position.id)  # add a default here in case no match is found? That shouldn't be possible though
@@ -225,12 +231,10 @@ def daily_update():
 
                 update_queries(client, law, now)
                 if not law.queries:
-                    print(f"CRITICAL: No search queries available for law with id {law.id}, skipping.")
+                    logger.debug(f"CRITICAL: No search queries available for law with id {law.id}, skipping.")
                     continue
 
-                if len(saved_for_rollback) >= NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT:
-                    saved_for_rollback.pop(0)
-                saved_for_rollback.append(SavedNewsUpdateCandidate(candidate))
+                saved_for_rollback[-1].append(SavedNewsUpdateCandidate(candidate))
 
                 update_news(
                     client,
@@ -298,46 +302,113 @@ def update_news(client, gn, position, infos, queries, saved_candidates, law=None
     db.session.commit()
 
 
-def update_inkrafttreten(inkrafttreten, law):
-    existing_inkrafttreten = db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
-    for inkraft in existing_inkrafttreten:
-        db.session.delete(inkraft)
+def update_inkrafttreten(new_inkrafttreten, law):
+    """Creates/Updates the Inkrafttreten for a given GesetzesVorhaben"""
+    old_inkrafttreten = db.session.query(Inkrafttreten).filter_by(vorgangs_id=law.id).all()
+    for old_inkraft in old_inkrafttreten:
+        if not any(
+            old_inkraft.datum == new_inkraft.get("datum", None)
+            and old_inkraft.erlaeuterung == new_inkraft.get("erlaeuterung", None)
+            for new_inkraft in new_inkrafttreten
+        ):
+            logger.info(f"Deleting Inkrafttreten with internal id: {old_inkraft.id} from law with internal id {law.id}, because it is not present in current DIP response.")
+            db.session.delete(old_inkraft)
 
-    for item in inkrafttreten:
-        inkraft = Inkrafttreten()
-        inkraft.datum = item.get("datum", None)
-        inkraft.erlaeuterung = item.get("erlaeuterung", None)
-
-        inkraft.inkrafttreten_vorhaben = law
-        db.session.add(inkraft)
-
-
-def update_verkuendung(verkuendungen, law):
-    existing_verkuendungen = db.session.query(Verkuendung).filter_by(vorgangs_id=law.id).all()
-    for verkuendung in existing_verkuendungen:
-        db.session.delete(verkuendung)
-
-    for item in verkuendungen:
-        verkuendung = Verkuendung()
-        verkuendung.ausfertigungsdatum = item.get("ausfertigungsdatum", None)
-        verkuendung.verkuendungsdatum = item.get("verkuendungsdatum", None)
-        verkuendung.pdf_url = item.get("pdf_url", None)
-        verkuendung.fundstelle = item.get("fundstelle", None)
-
-        verkuendung.vorhaben = law
-        db.session.add(verkuendung)
+    inkrafttreten_count = 0
+    for new_inkraft in new_inkrafttreten:
+        if not any(
+            old_inkraft.datum == new_inkraft.get("datum", None)
+            and old_inkraft.erlaeuterung == new_inkraft.get("erlaeuterung", None)
+            for old_inkraft in old_inkrafttreten
+        ):
+            inkraft = Inkrafttreten()
+            inkraft.datum = new_inkraft.get("datum", None)
+            inkraft.erlaeuterung = new_inkraft.get("erlaeuterung", None)
+            inkraft.inkrafttreten_vorhaben = law
+            db.session.add(inkraft)
+            inkrafttreten_count += 1
+    
+    if inkrafttreten_count > 0:
+        logger.info(f"Added {inkrafttreten_count} Inkrafttreten to GesetzesVorhaben with internal id {law.id}.")
 
 
-def update_positionen(dip_id, law):
-    params = {"f.vorgang": dip_id}
+def update_verkuendungen(new_verkuendungen: list, law: GesetzesVorhaben) -> None:
+    """Creates/Updates the Verkuendungen for a given GesetzesVorhaben"""
+    old_verkuendungen = db.session.query(Verkuendung).filter_by(vorgangs_id=law.id).all()
+    for old_verkuendung in old_verkuendungen:
+        if not any(
+            old_verkuendung.ausfertigungsdatum == new_verkuendung.get("ausfertigungsdatum", None)
+            and old_verkuendung.verkuendungsdatum == new_verkuendung.get("verkuendungsdatum", None)
+            and old_verkuendung.pdf_url == new_verkuendung.get("pdf_url", None)
+            and old_verkuendung.fundstelle == new_verkuendung.get("fundstelle", None)
+            for new_verkuendung in new_verkuendungen
+        ):
+            logger.info(f"Deleting Verkuendung with internal id: {old_verkuendung.id} from law with internal id {law.id}, because it is not present in current DIP response.")
+            db.session.delete(old_verkuendung)
+    
+    verkuendungen_count = 0
+    for new_verkuendung in new_verkuendungen:
+        if not any(
+            old_verkuendung.ausfertigungsdatum == new_verkuendung.get("ausfertigungsdatum", None)
+            and old_verkuendung.verkuendungsdatum == new_verkuendung.get("verkuendungsdatum", None)
+            and old_verkuendung.pdf_url == new_verkuendung.get("pdf_url", None)
+            and old_verkuendung.fundstelle == new_verkuendung.get("fundstelle", None)
+            for old_verkuendung in old_verkuendungen
+        ):
+            verkuendung = Verkuendung()
+            verkuendung.ausfertigungsdatum = new_verkuendung.get("ausfertigungsdatum", None)
+            verkuendung.verkuendungsdatum = new_verkuendung.get("verkuendungsdatum", None)
+            verkuendung.pdf_url = new_verkuendung.get("pdf_url", None)
+            verkuendung.fundstelle = new_verkuendung.get("fundstelle", None)
+            verkuendung.vorhaben = law
+            db.session.add(verkuendung)
+            verkuendungen_count += 1
+    
+    if verkuendungen_count > 0:
+        logger.info(f"Added {verkuendungen_count} Verkuendungen to GesetzesVorhaben with internal id {law.id}.")
 
+
+def update_positionen(law : GesetzesVorhaben) -> None:
+    """Creates/Updates Vorgangspositionen for a law, as well as children of Vorgangspositionen (i.e. Ueberweisung, Fundstelle, Beschlussfassung, Dokument, NewsUpdateCandidate). May discard law if it turns out to be from before FIRST_DATE_TO_CHECK, which may only become apparent when processing Vorgangspositionen."""
+
+    # First, we iterate through all Vorgangspositionen to check if any of them are from before our FIRST_DATE_TO_CHECK. This happens sometimes if there is a new development for an old law. Confusingly, the "datum" field of such old laws will reflect the date of the recent change, making it impossible to filter out such laws via f.datum.start in the previous step when querying DIP_ENDPOINT_VORGANGLISTE, so we have to do it manually here. 
+    params = {"f.vorgang": law.dip_id}
+    cursor = ""
+    response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
+    while response.ok and cursor != response.json().get("cursor", None):
+        response_data = response.json()
+        for item in response_data.get("documents", []):
+            positions_datum = item.get("datum", LAST_DATE_TO_CHECK)
+            if positions_datum < FIRST_DATE_TO_CHECK:
+                logger.warning(f"Warning: Law: {law.titel} with dip id {law.dip_id} contains Vorgangsposition {item.get("vorgangsposition", None)} {f'with datum {positions_datum}' if positions_datum != LAST_DATE_TO_CHECK else "without a valid date"}. Its Vorgangspositionen will not be processed, and the law will not be added to the database (nor will it be removed if it already existed in the database prior to this run).")
+                return
+        params["cursor"] = cursor = response.json().get("cursor", None)
+        response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
+
+    # law does not contain positions from before FIRST_DATE_TO_CHECK, proceed with normal processing
+    db.session.add(law)
+    db.session.commit()
+    time.sleep(1)
+    params = {"f.vorgang": law.dip_id}
     cursor = ""
     response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
     new_position_dates = []
     while response.ok and cursor != response.json().get("cursor", None):
-        for item in response.json().get("documents", []):
-            new_position = (position := get_position_by_dip_id(item.get("id", None))) is None and item.get("gang", None) is True
-            position = position or Vorgangsposition()
+        response_data = response.json()
+        for item in response_data.get("documents", []):
+            dip_id = item.get("id", None)
+            logger.debug(f"Processing Vorgangsposition: {item.get("vorgangsposition", None)} with dip id: {dip_id}")
+
+            if (position := get_position_by_dip_id(dip_id)) is None:
+                logger.info(f"Vorgangsposition: {item.get("vorgangsposition", None)} does not yet exist in the database. Creating new database entry with dip id: {dip_id}.")
+                new_position = True
+                new_newsworthy_position = item.get("gang", False)
+                position = Vorgangsposition()
+            else:
+                logger.debug(f"Vorgangsposition with dip id: {dip_id} already present in the database under internal id: {position.id}, may update values though.")
+                new_position = False
+                new_newsworthy_position = False
+            
             if not position.aktualisiert or position.aktualisiert != item.get("aktualisiert", None):  # may wanna check item.get("gang", False) here
                 position.dip_id = item.get("id", None)
                 position.vorgangsposition = item.get("vorgangsposition", None)
@@ -359,14 +430,14 @@ def update_positionen(dip_id, law):
                 ueberweisungen = item.get("ueberweisung", [])
                 update_ueberweisungen(position, ueberweisungen)
 
-                fundstelle = item.get("fundstelle", [])
+                fundstelle = item.get("fundstelle", {})
                 update_fundstelle(position, fundstelle)
 
                 beschlussfassungen = item.get("beschlussfassung", [])
                 update_beschluesse(position, beschlussfassungen)
 
-                # if the position has been newly added, and no other new positions have already been added for the same day, add it to the queue of NewsUpdateCandidates
-                if new_position and position.datum not in new_position_dates:
+                # if the position has been newly added, has gang=True, and no other new positions have already been added for the same day, add it to the queue of NewsUpdateCandidates
+                if new_newsworthy_position and position.datum not in new_position_dates:
                     new_position_dates.append(position.datum)
                     news_update_candidate = NewsUpdateCandidate()
                     news_update_candidate.position = position
@@ -376,76 +447,101 @@ def update_positionen(dip_id, law):
                     db.session.add(news_update_candidate)
 
         time.sleep(1)
-        params["cursor"] = cursor = response.json().get("cursor", None)
+        params["cursor"] = cursor = response_data.get("cursor", None)
         response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
 
-def update_beschluesse(position, beschlussfassungen):
-    # position.beschluesse.clear()
-    existing_beschluesse = db.session.query(Beschlussfassung).filter_by(positions_id=position.id).all()
-    if existing_beschluesse:
-        for beschluss in existing_beschluesse:
-            db.session.delete(beschluss)
+def update_beschluesse(position: Vorgangsposition, new_beschluesse: list) -> None:
+    """Updates the Beschlussfassungen for a given Vorgangsposition"""
 
-    for item in beschlussfassungen:
-        beschluss = Beschlussfassung()
-        beschluss.beschlusstenor = item.get("beschlusstenor", None)
-        beschluss.dokumentnummer = item.get("dokumentnummer", None)
-        beschluss.seite = item.get("seite", None)
-        beschluss.abstimm_ergebnis_bemerkung = item.get("abstimm_ergebnis_bemerkung", None)
+    # This function used to always simply delete all old beschluesse from the database and replace them with the new ones, as there is no convenient way to check if they are identical. In practice though, they probably will (almost) always be identical, so this now introduces a check and only adds / deletes insofar as there are differences
 
-        beschluss.position = position
-        db.session.add(beschluss)
+    old_beschluesse = db.session.query(Beschlussfassung).filter_by(positions_id=position.id).all()
+    for old_beschluss in old_beschluesse:
+        if not any(
+            old_beschluss.beschlusstenor == new_beschluss.get("beschlusstenor", None) 
+            and old_beschluss.dokumentnummer == new_beschluss.get("dokumentnummer", None) 
+            and old_beschluss.seite == new_beschluss.get("seite", None) 
+            and old_beschluss.abstimm_ergebnis_bemerkung == new_beschluss.get("abstimm_ergebnis_bemerkung", None)
+            for new_beschluss in new_beschluesse
+        ):
+            logger.info(f"Deleting Beschlussfassung with internal id: {old_beschluss.id} from position with internal id {position.id}, dip id: {position.dip_id}, because it is not present in current DIP response.")
+            db.session.delete(old_beschluss)
 
+    beschluss_count = 0
+    for new_beschluss in new_beschluesse:
+        if not any(
+            old_beschluss.beschlusstenor == new_beschluss.get("beschlusstenor", None)
+            and old_beschluss.dokumentnummer == new_beschluss.get("dokumentnummer", None)
+            and old_beschluss.seite == new_beschluss.get("seite", None)
+            and old_beschluss.abstimm_ergebnis_bemerkung == new_beschluss.get("abstimm_ergebnis_bemerkung", None)
+            for old_beschluss in old_beschluesse
+        ):
+            beschluss = Beschlussfassung()
+            beschluss.beschlusstenor = new_beschluss.get("beschlusstenor", None)
+            beschluss.dokumentnummer = new_beschluss.get("dokumentnummer", None)
+            beschluss.seite = new_beschluss.get("seite", None)
+            beschluss.abstimm_ergebnis_bemerkung = new_beschluss.get("abstimm_ergebnis_bemerkung", None)
+            beschluss.position = position
+            db.session.add(beschluss)
+            beschluss_count += 1
+    
+    if beschluss_count > 0:
+        logger.info(f"Added {beschluss_count} Beschlussfassungen to Vorgangsposition with internal id {position.id}, dip id: {position.dip_id}.")
+    
 
-def update_fundstelle(position, dip_fundstelle):
-    fundstelle = db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none() or Fundstelle()
-    fundstelle.dip_id = dip_fundstelle.get("id", None)
-    fundstelle.dokumentnummer = dip_fundstelle.get("dokumentnummer", None)
-    fundstelle.drucksachetyp = dip_fundstelle.get("drucksachetyp", None)
-    fundstelle.herausgeber = dip_fundstelle.get("herausgeber", None)
-    fundstelle.pdf_url = dip_fundstelle.get("pdf_url", None)
-    fundstelle.urheber = [urheber for urheber in dip_fundstelle.get("urheber", [])]
-    fundstelle.anfangsseite = dip_fundstelle.get("anfangsseite", None)
-    fundstelle.endseite = dip_fundstelle.get("endseite", None)
-    fundstelle.anfangsquadrant = dip_fundstelle.get("anfangsquadrant", None)
-    fundstelle.endquadrant = dip_fundstelle.get("endquadrant", None)
+def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
+    """Creates/updates the Fundstelle of a given Vorgangsposition. 
+    Also creates new fields anfangsseite_mapped, endseite_mapped and mapped_pdf_url."""
+    if (fundstelle := db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none()) is None:
+        logger.info(f"Fundstelle with dip id {new_fundstelle.get("id", None)} does not yet exist in the database. Creating new database entry.")
+        fundstelle = Fundstelle()
+    else:
+        logger.debug(f"Fundstelle with dip id: {fundstelle.dip_id} already present in the database under internal id {fundstelle.id}, may update values though.")
+    fundstelle.dip_id = new_fundstelle.get("id", None)
+    fundstelle.dokumentnummer = new_fundstelle.get("dokumentnummer", None)
+    fundstelle.drucksachetyp = new_fundstelle.get("drucksachetyp", None)
+    fundstelle.herausgeber = new_fundstelle.get("herausgeber", None)
+    fundstelle.pdf_url = new_fundstelle.get("pdf_url", None)
+    fundstelle.urheber = new_fundstelle.get("urheber", []).copy()
+    fundstelle.anfangsseite = new_fundstelle.get("anfangsseite", None)
+    fundstelle.endseite = new_fundstelle.get("endseite", None)
+    fundstelle.anfangsquadrant = new_fundstelle.get("anfangsquadrant", None)
+    fundstelle.endquadrant = new_fundstelle.get("endquadrant", None)
 
-    if "#P." in fundstelle.pdf_url and not fundstelle.mapped_pdf_url:
-
+    if fundstelle.anfangsseite and not fundstelle.anfangsseite_mapped:
         if fundstelle.herausgeber == "BR":
             try:
-                start, offset = map_pdf_pages(fundstelle)
+                offset = map_pdf_without_destinations(fundstelle)
                 anfangsseite_internal = fundstelle.anfangsseite
                 anfangsseite = int(anfangsseite_internal) - offset
                 endseite = int(fundstelle.endseite) - offset
                 fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{anfangsseite_internal}", f"#page={anfangsseite}")
             except Exception as e:
-                report_error(
-                    "Error mapping destinations to pages",
+                logger.critical(
                     f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                    True,
+                    subject="Error mapping destinations to pages",
                 )
         elif fundstelle.herausgeber == "BT":
             try:
-                destinations = map_pdf_destinations_to_pages(fundstelle)
+                destinations = map_pdf_with_destinations(fundstelle)
                 anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
                 endseite = int(destinations[f"P.{fundstelle.endseite}"])
+                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{anfangsseite_internal}", f"#page={anfangsseite}")
             except Exception as e:
-                report_error(
-                    "Error mapping destinations to pages",
+                logger.critical(
                     f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                    True,
+                    subject="Error mapping destinations to pages",
                 )
         else:
-            report_error(
-                "Error mapping destinations to pages",
+            logger.critical(
                 f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
-                True,
+                subject="Error mapping destinations to pages",
             )
 
         fundstelle.anfangsseite_mapped = anfangsseite
         fundstelle.endseite_mapped = endseite
+        logger.info(f"Mapped pages and pdf_url for Fundstelle with dip id: {fundstelle.dip_id}, Herausgeber: {fundstelle.herausgeber}, anfangsseite: {fundstelle.anfangsseite}, endseite: {fundstelle.endseite}, mapped anfangsseite: {fundstelle.anfangsseite_mapped}, mapped endseite: {fundstelle.endseite_mapped}")
 
     fundstelle.position = position
     db.session.add(fundstelle)
@@ -456,76 +552,101 @@ def update_fundstelle(position, dip_fundstelle):
 
 
 def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle):
-    # don't process if anfangsseite and endseite are on the same page, or otherwise invalid
+    """Converts the pdf of a given Fundstelle to markdown and stores it as a Dokument."""
+    
+    fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id} with url {fundstelle.pdf_url}"
     try:
         with requests.get(fundstelle.pdf_url) as response:
             response.raise_for_status()
             pdf = pypdfium2.PdfDocument(response.content)
+            # TODO: Devise some way to process longer pdfs, e.g. splitting into smaller files.
             if len(pdf) > 500:
-                print(f"Skipping fundstelle {fundstelle.id} with url {fundstelle.pdf_url} because it has more than 500 pages")
+                logger.error(f"Skipping {fundstelle_infos} because it has more than 500 pages.")
                 return
 
     except Exception as e:
-        report_error(
-            "Error loading fundstelle pdf to check size",
-            f"Error occurred on fundstelle {fundstelle.id} with url {fundstelle.pdf_url}.\n" f"Error: {e}",
-            True,
+        logger.critical(
+            f"Error occurred on {fundstelle_infos}.\n" f"Error: {e}",
+            subject="Error loading fundstelle pdf to check size",
         )
 
-    dokument = Dokument()
-    dokument.pdf_url = fundstelle.pdf_url
-    # make below >= to include cases where anfangsseite and endseite are on the same page, but those are usually not interesting
-    if fundstelle.anfangsseite_mapped and fundstelle.endseite_mapped and fundstelle.endseite_mapped >= fundstelle.anfangsseite_mapped:
-        dokument.markdown = (
-            converter.convert(
-                fundstelle.pdf_url,
-                page_range=(fundstelle.anfangsseite_mapped, fundstelle.endseite_mapped),
+    if fundstelle.anfangsseite_mapped and fundstelle.endseite_mapped:
+        # make below >= to include cases where anfangsseite and endseite are on the same page, but those are usually not interesting
+        if fundstelle.endseite_mapped > fundstelle.anfangsseite_mapped:
+            markdown = (
+                converter.convert(
+                    fundstelle.pdf_url,
+                    page_range=(fundstelle.anfangsseite_mapped, fundstelle.endseite_mapped),
+                )
+                .document.export_to_markdown()
+                .replace(" ", "-")
+                .replace("  ", " ")
             )
-            .document.export_to_markdown()
-            .replace(" ", "-")
-            .replace("  ", " ")
-        )
+        else:
+            logger.debug(f"Not adding Dokument for {fundstelle_infos}, because its anfangsseite and endseite are identical.")
+            return
     else:
-        dokument.markdown = converter.convert(fundstelle.pdf_url).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
+        markdown = converter.convert(fundstelle.pdf_url).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
 
+    # have to do a test query against the db because above conversion may take so long that the connection gets dropped
     try:
         test = db.session.query(Vorgangsposition).first()
     except Exception as e:
-        print(f"Connection closed during pdf processing: {e}. Reconnecting...")
+        logger.info(f"Connection closed during pdf processing: {e}. Reconnecting...")
         db.session.rollback()
         try:
             test = db.session.query(Vorgangsposition).first()
         except Exception as e:
-            print(f"Reconnect failed. Exiting...")
             db.session.rollback()
             db.session.close()
             db.engine.dispose()
-            os._exit(1)
+            logger.critical(f"Reconnecting to the database failed after timeout during pdf processing for {fundstelle_infos}. Exiting...",
+                            subject="Lost database connection during pdf processing.")
 
+    dokument = Dokument()
+    dokument.markdown = markdown
+    dokument.pdf_url = fundstelle.pdf_url
     dokument.conversion_date = datetime.datetime.now()
     dokument.fundstelle = fundstelle
     dokument.vorgangsposition = position.vorgangsposition
     dokument.herausgeber = fundstelle.herausgeber
     db.session.add(dokument)
     db.session.commit()
+    logger.info(f"Added Dokument with internal id {dokument.id} for {fundstelle_infos}")
 
+def update_ueberweisungen(position : Vorgangsposition, new_ueberweisungen: list) -> None:
+    """Creates/Updates the Ueberweisungen for a given Vorgangsposition"""
+    # This function used to always simply delete all old ueberweisungen from the database and replace them with the new ones, as there is no convenient way to check if they are identical. In practice though, they probably will (almost) always be identical, so this now introduces a check and only adds / deletes insofar as there are differences
 
-def update_ueberweisungen(position, ueberweisungen):
-    # position.ueberweisungen.clear()
-    existing_ueberweisungen = db.session.query(Ueberweisung).filter_by(positions_id=position.id).all()
-    if existing_ueberweisungen:
-        for ueberweisung in existing_ueberweisungen:
-            db.session.delete(ueberweisung)
+    old_ueberweisungen = db.session.query(Ueberweisung).filter_by(positions_id=position.id).all()
+    for old_ueberweisung in old_ueberweisungen:
+        if not any(
+            old_ueberweisung.ausschuss == new_ueberweisung.get("ausschuss", None) 
+            and old_ueberweisung.ausschuss_kuerzel == new_ueberweisung.get("ausschuss_kuerzel", None) 
+            and old_ueberweisung.federfuehrung == new_ueberweisung.get("federfuehrung", None) 
+            for new_ueberweisung in new_ueberweisungen
+        ):
+            logger.info(f"Deleting Ueberweisung with internal id: {old_ueberweisung.id} from position with internal id {position.id}, dip id: {position.dip_id}, because it is not present in current DIP response.")
+            db.session.delete(old_ueberweisung)
 
-    for item in ueberweisungen:
-        ueberweisung = Ueberweisung()
-        ueberweisung.ausschuss = item.get("ausschuss", None)
-        ueberweisung.ausschuss_kuerzel = item.get("ausschuss_kuerzel", None)
-        ueberweisung.federfuehrung = item.get("federfuehrung", None)
-
-        ueberweisung.position = position
-        db.session.add(ueberweisung)
-
+    ueberweisung_count = 0
+    for new_ueberweisung in new_ueberweisungen:
+        if not any(
+            old_ueberweisung.ausschuss == new_ueberweisung.get("ausschuss", None)
+            and old_ueberweisung.ausschuss_kuerzel == new_ueberweisung.get("ausschuss_kuerzel", None)
+            and old_ueberweisung.federfuehrung == new_ueberweisung.get("federfuehrung", None)
+            for old_ueberweisung in old_ueberweisungen
+        ):
+            ueberweisung = Ueberweisung()
+            ueberweisung.ausschuss = new_ueberweisung.get("ausschuss", None)
+            ueberweisung.ausschuss_kuerzel = new_ueberweisung.get("ausschuss_kuerzel", None)
+            ueberweisung.federfuehrung = new_ueberweisung.get("federfuehrung", None)
+            ueberweisung.position = position
+            db.session.add(ueberweisung)
+            ueberweisung_count += 1
+    
+    if ueberweisung_count > 0:
+        logger.info(f"Added {ueberweisung_count} Ueberweisungen to Vorgangsposition with internal id {position.id}, dip id: {position.dip_id}.")
 
 def get_news(client, gn, infos, law, queries, position, saved_candidates):
     global no_news_found  # prefer this over passing it around between a bunch of functions that mostly don't need it
@@ -544,7 +665,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
     gn.start_date = (start_date.year, start_date.month, start_date.day)
     gn.end_date = (end_date.year, end_date.month, end_date.day)
 
-    print(f"retrieving news from {news_info['start']} to {news_info['end']}")
+    logger.debug(f"retrieving news from {news_info['start']} to {news_info['end']}")
     for query in queries:
         time.sleep(1)
 
@@ -557,11 +678,11 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 no_news_found += 1
                 raise Exception("did not get a response from gnews")
         except Exception as e:
-            print(f"Error fetching news from gnews for query: {query}. Error: {e}. Start date: {gn.start_date}. End date: {gn.end_date}")
+            logger.debug(f"Error fetching news from gnews for query: {query}. Error: {e}. Start date: {gn.start_date}. End date: {gn.end_date}")
             continue
 
         no_news_found = 0
-        print(f"found {len(gnews_response)} articles for query: {query}")
+        logger.debug(f"found {len(gnews_response)} articles for query: {query}")
         try:
             evaluate_results_schema = {
                 "name": "Artikel_Schema",
@@ -618,7 +739,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                     gnews_response.pop(i)
 
         except Exception as e:
-            print(f"Error evaluating search results: {e}")
+            logger.debug(f"Error evaluating search results: {e}")
             continue
 
         # The current calculation of total relevant hits may skew results, because it does not account for duplicates in the search results
@@ -635,7 +756,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # Leaving this comment in as a mental note in case I do decide to re-process all laws at some point though.
 
         news_info["relevant_hits"] += len(gnews_response)
-        print(f"found {len(gnews_response)} relevant titles for query: {query}")
+        logger.debug(f"found {len(gnews_response)} relevant titles for query: {query}")
 
         for article in gnews_response:
             if len(news_info["artikel"]) >= IDEAL_ARTICLE_COUNT:
@@ -646,10 +767,10 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 if url["status"]:
                     article["url"] = url["decoded_url"]
                 else:
-                    print(f"Error decoding URL of {article}")
+                    logger.debug(f"Error decoding URL of {article}")
                     continue
             except Exception as e:
-                print(f"Unknown Error {e} while decoding URL of {article}")
+                logger.debug(f"Unknown Error {e} while decoding URL of {article}")
                 continue
 
             # this check has only been added after law 598, see above
@@ -661,7 +782,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
                 news_article.download()
                 news_article.parse()
             except Exception as e:
-                print(f"Error parsing news article: {e}")
+                logger.debug(f"Error parsing news article: {e}")
                 continue
 
             if not news_article.is_valid_body() or len(news_article.text) < MINIMUM_ARTICLE_LENGTH or len(news_article.text) > MAXIMUM_ARTICLE_LENGTH:
@@ -675,7 +796,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
             news_info["article_data"].append(article)
 
     if len(news_info["artikel"]) < MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY:
-        print(f"Only found {len(news_info['artikel'])} usable articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
+        logger.debug(f"Only found {len(news_info['artikel'])} usable articles, need {MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY} to display summary.")
         return news_info
 
     # if a summary already exists
@@ -683,11 +804,11 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # ...no need to make a new one if the old one was based on a sufficient number of articles and we haven't seen at least a 1.5x increase in article count since then
         if news_info["relevant_hits"] > position.summary.articles_found >= IDEAL_ARTICLE_COUNT:
             if news_info["relevant_hits"] < position.summary.articles_found * 1.5:
-                print(f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed.")
+                logger.debug(f"Already had {position.summary.articles_found} articles, only have {news_info['relevant_hits']} now, no update needed.")
                 return news_info
         # ...obviously, don't make a new one if we haven't seen an increase in article count at all, either
         elif news_info["relevant_hits"] <= position.summary.articles_found:
-            print("Did not find more articles this time than last time, no update needed.")
+            logger.debug("Did not find more articles this time than last time, no update needed.")
             return news_info
         # ...or if the actual articles that the summary was based on then, and would be based on now, are identical
         # (that would be unfortunate, though: If the article count has increased substantially,
@@ -696,7 +817,7 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
         # For now, though, I trust that Google News orders its results such that new articles containing new developments will be amongst the first
         # to get processed, and therefore end up in the selection of articles for the new summary.)
         if all(any(new_article["url"] == existing_article.url for existing_article in position.summary.articles) for new_article in news_info["article_data"]):
-            print("Old and new articles identical, no need to update")
+            logger.debug("Old and new articles identical, no need to update")
             return news_info
 
     generate_summary_messages = [
@@ -740,11 +861,11 @@ def get_news(client, gn, infos, law, queries, position, saved_candidates):
     ]
 
     if not (ai_response := get_text_data_from_ai(client, generate_summary_messages)):
-        print(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
+        logger.debug(f"""Error getting summary for news info: {generate_summary_messages[1]["content"]}""")
         return news_info
 
     news_info["zusammenfassung"] = ai_response
-    print(f"generated summary based on {len(news_info["artikel"])} news articles")
+    logger.debug(f"generated summary based on {len(news_info["artikel"])} news articles")
     return news_info
 
 
@@ -764,21 +885,24 @@ def consider_rollback(saved_candidates):
     if test_result_count < 100:
         error_message = f"No news found for {NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT} queries in a row, test query only returned {test_result_count} results.\n"
         try:
-            for original in saved_candidates:
-                candidate = db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none() or NewsUpdateCandidate()
-                candidate.last_update = original.last_update
-                candidate.next_update = original.next_update
-                candidate.update_count = original.update_count
-                candidate.position = original.position
+            for candidates_of_a_given_law in saved_candidates:
+                for original in candidates_of_a_given_law:
+                    candidate = db.session.query(NewsUpdateCandidate).filter(NewsUpdateCandidate.id == original.id).one_or_none() or NewsUpdateCandidate()
+                    candidate.last_update = original.last_update
+                    candidate.next_update = original.next_update
+                    candidate.update_count = original.update_count
+                    candidate.position = original.position
             db.session.commit()
             error_message += f"Successfully rolled back {len(saved_candidates)} news update candidates. No further action is required\n"
         except Exception as e:
             error_message += f"Error rolling back news update candidates: {e}\nManual rollback required\n"
         finally:
             error_message += "Affected candidates:\n"
-            error_message += "\n".join(f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" for original in saved_candidates)
+            error_message += "\n".join(
+                (f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" for original in candidates_of_a_given_law) for candidates_of_a_given_law in saved_candidates
+            )
             error_message += f"\nExiting daily update at {datetime.datetime.now()}"
-            report_error("Google News is unresponsive", error_message, True)
+            logger.critical("Google News is unresponsive", error_message)
     else:
         no_news_found = 0
 
@@ -832,7 +956,7 @@ def generate_search_queries(client, law):
         queries = [query for query in ai_response if query]
 
     except Exception as e:
-        print(f"Error generating search query. Error: {e}. AI response: {ai_response}.")
+        logger.debug(f"Error generating search query. Error: {e}. AI response: {ai_response}.")
         return None
 
     if shorthand and shorthand not in queries:
@@ -914,7 +1038,7 @@ def update_law_in_es(law):
 #     )
 #     query = "Was sind die wichtigsten Unterschiede zwischen dem Gesetzentwurf und der Beschlussempfehlung des Ausschusses?"
 #     matched_docs = vector_store.similarity_search(query)
-#     print(matched_docs)
+#     logger.debug(matched_docs)
 #     os._exit(0)
 
 
@@ -943,463 +1067,450 @@ def update_law_in_es(law):
 #     )
 #     splits = loader.load()
 
-# conv_result = doc_converter.convert(url)
-# with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".md", encoding='utf-8') as temp_file:
-#     markdown_content = conv_result.document.export_to_markdown()
-#     temp_file.write(markdown_content)
-#     temp_file_path = temp_file.name  # Save the path
+#     conv_result = doc_converter.convert(url)
+#     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".md", encoding='utf-8') as temp_file:
+#         markdown_content = conv_result.document.export_to_markdown()
+#         temp_file.write(markdown_content)
+#         temp_file_path = temp_file.name  # Save the path
 
-# # File is now closed, we can use the loader
-# try:
-#     loader = DoclingLoader(
-#         file_path=temp_file_path,
-#         export_type=ExportType.DOC_CHUNKS,
-#         converter=doc_converter,
-#         chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS)
-#     )
-#     splits = loader.load()
-# finally:
-#     # Clean up the temporary file
-#     os.unlink(temp_file_path)
-
-# return splits
-
-
-# def map_pdf_pages(dokument: Fundstelle) -> tuple[int, int]:
-#     """Maps internal page numbers to external page numbers for a given document.
-#     Returns a tuple of the (external) page number on which the internal page numbers start,
-#     and the offset between external and internal numbers.
-#     """
-
-#     # Download the PDF
-#     url = dokument.pdf_url
-
+#     # File is now closed, we can use the loader
 #     try:
-#         with requests.get(url) as response:
-#             response.raise_for_status()
-#             pdf = pypdfium2.PdfDocument(response.content)
-
-#     except Exception as e:
-#         report_error(
-#             "Error mapping internal to external page numbers",
-#             f"Error occurred on document {dokument.id} with url {url}.\n" f"Error: {e}",
-#             True,
+#         loader = DoclingLoader(
+#             file_path=temp_file_path,
+#             export_type=ExportType.DOC_CHUNKS,
+#             converter=doc_converter,
+#             chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS)
 #         )
+#         splits = loader.load()
+#     finally:
+#         # Clean up the temporary file
+#         os.unlink(temp_file_path)
 
-#     # Search the upper 15% of each page for any and all numbers and save them in a list of lists
-#     try:
-#         num_pages = len(pdf)
-#         pages = []
-#         search_area_percent = 0.15
-
-#         for page_idx in range(num_pages):
-#             page = pdf[page_idx]
-#             page_width, page_height = page.get_size()
-#             top_search_height = page_height * search_area_percent
-#             page_text = page.get_textpage()
-#             top_text = page_text.get_text_bounded(
-#                 0, page_height - top_search_height, page_width, page_height
-#             )
-#             page_candidates = []
-#             nums = re.findall(r"\b\d+\b", top_text)
-#             for num in nums:
-#                 try:
-#                     n = int(num)
-#                     page_candidates.append(n)
-#                 except ValueError:
-#                     continue
-#             pages.append(page_candidates)
-#         pdf.close()
-
-#     except Exception as e:
-#         report_error(
-#             "Error processing PDF page",
-#             f"Failed to process page {page_idx} of document {dokument.id}: {str(e)}",
-#             True,
-#         )
-
-#     # Keep going through the numbers from each page until we find a sequence of 10 consecutive numbers
-#     start = None
-#     offset = None
-#     done = False
-#     pages_missing_numbers = 0
-#     sequences = []
-#     pages_with_consecutive_numbers_threshold = (
-#         10 if len(pages) >= 20 else len(pages) // 2
-#     )
-#     verify_last_pages = (
-#         min(5, len(pages) - pages_with_consecutive_numbers_threshold)
-#         if len(pages) > 20
-#         else 0
-#     )
-
-#     for i, page in enumerate(pages):
-#         if done:
-#             break
-
-#         # empty pages dont have numbers printed on them. This way, they don't break the sequence, but they don't count towards the threshold, either
-#         if not page:
-#             pages_missing_numbers += 1
-#             continue
-
-#         continued_sequences = []
-#         new_sequences = []
-
-#         for candidate in page:
-#             if done:
-#                 break
-
-#             continues_sequence = False
-
-#             for j, sequence in enumerate(sequences):
-#                 # dont append more than one number to each sequence per page
-#                 if j in continued_sequences:
-#                     continue
-
-#                 if candidate == sequence[-1] + 1 + pages_missing_numbers:
-#                     continues_sequence = True
-#                     sequence.append(candidate)
-#                     continued_sequences.append(j)
-
-#                     if len(sequence) >= pages_with_consecutive_numbers_threshold:
-#                         # if our sequence covers the length of the document, we are done
-#                         if not verify_last_pages or i >= len(pages) - verify_last_pages:
-#                             done = True
-#                             start = i - pages_with_consecutive_numbers_threshold + 1
-#                             offset = candidate - i
-#                             break
-#                         else:
-#                             # check if the sequence still holds for any of the last 5 pages
-#                             # (technically, just checking the last page should be enough, but this should be a bit more robust)
-#                             for k in range(
-#                                 len(pages) - 1, len(pages) - 1 - verify_last_pages, -1
-#                             ):
-#                                 if any(
-#                                     final_candidate == candidate + k - i
-#                                     for final_candidate in pages[k]
-#                                 ):
-#                                     done = True
-#                                     start = (
-#                                         i - pages_with_consecutive_numbers_threshold + 1
-#                                     )
-#                                     offset = candidate - i
-#                                     break
-
-#                             if done:
-#                                 break
-
-#                             # if it does not, report an error
-#                             report_error(
-#                                 "Error mapping internal to external page numbers",
-#                                 f"Found {pages_with_consecutive_numbers_threshold} consecutive numbers on pages {i - pages_with_consecutive_numbers_threshold} to {i}.\n"
-#                                 f"However, the last page {pages[-1]} does not have the expected internal page number {candidate + len(pages) - i}.\n"
-#                                 f"Instead, the last page contains these numbers: {', '.join(str(n) for n in pages[-1])}.\n"
-#                                 f"Error occurred on document {dokument.id} with url {url}.",
-#                                 True,
-#                             )
-
-#             # if the candidate did not continue any sequences, it may be the start of a new sequence
-#             if not continues_sequence:
-#                 new_sequences.append([candidate])
-
-#         pages_missing_numbers = 0
-
-#         # remove sequences that were not continued on the current page
-#         for j in range(len(sequences) - 1, -1, -1):
-#             if j not in continued_sequences:
-#                 sequences.pop(j)
-
-#         sequences += new_sequences
-
-#     if start and offset is not None:
-#         print(
-#             f"Finished mapping internal page numbers for dokument with id: {dokument.id} and url: {url}.\n"
-#             f"Internal page numbers start on internal page {start + 1} (1-indexed), which has external page number {start + offset}, making the offset {offset - 1}."
-#         )
-#         return (
-#             start + 1,
-#             offset - 1,
-#         )  # +1 / -1 because our list was 0-indexed, but to the reader, pdf pages are 1-indexed
-#     else:
-#         report_error(
-#             "Error mapping internal to external page numbers",
-#             f"Could not find a sequence of {pages_with_consecutive_numbers_threshold} consecutive numbers on the first {len(pages)} pages.\n"
-#             f"Error occurred on document {dokument.id} with url {url}.",
-#             True,
-#         )
+#     return splits
 
 
-# def update_all_pdf_urls():
-#     """Maps the pdf_url of all fundstellen from the Bundesrat for which this hasn't been done yet."""
+def map_pdf_without_destinations(dokument: Fundstelle) -> tuple[int, int]:
+    """Maps internal page numbers to external page numbers for a given document.
+    Returns a tuple of the (external) page number on which the internal page numbers start,
+    and the offset between external and internal numbers.
+    """
 
-#     fundstellen = (
-#         db.session.query(Fundstelle)
-#         .filter(
-#             Fundstelle.pdf_url.like("%#P.%"),
-#             Fundstelle.herausgeber == "BR",
-#             Fundstelle.mapped_pdf_url == None,
-#         )
-#         .all()
-#     )
-#     fundstellen_groups = {}
-#     for fundstelle in fundstellen:
-#         fundstellen_groups[fundstelle.dokumentnummer] = fundstellen_groups.get(
-#             fundstelle.dokumentnummer, []
-#         ) + [fundstelle]
-#     for group in fundstellen_groups.values():
-#         start, offset = map_pdf_pages(group[0])
-#         for fundstelle in group:
-#             try:
-#                 internal_page = fundstelle.pdf_url.split("#P.")[1]
-#                 external_page = int(internal_page) - offset
-#                 fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-#                     f"#P.{internal_page}", f"#page={external_page}"
-#                 )
-#                 print(f"Old url: {fundstelle.pdf_url}")
-#                 print(f"New url: {fundstelle.mapped_pdf_url}")
-#             except Exception as e:
-#                 print(
-#                     f"Error mapping pdf url for fundstelle {fundstelle.id}: {e}, url: {fundstelle.pdf_url}"
-#                 )
-#         db.session.commit()
+    # Download the PDF
+    url = dokument.pdf_url
 
+    try:
+        with requests.get(url) as response:
+            response.raise_for_status()
+            pdf = pypdfium2.PdfDocument(response.content)
 
-# def map_pdf_destinations_to_pages(fundstelle: Fundstelle):
-#     """
-#     Get all named destinations from a PDF file. Used for pdf files from the Bundestag, where internal page numbers are layed out as named destinations.
+    except Exception as e:
+        logger.critical(
+            "Error mapping internal to external page numbers",
+            f"Error occurred on document {dokument.id} with url {url}.\n" f"Error: {e}",
+        )
 
-#     Args:
-#         pdf_path: Path to the PDF file
+    # Search the upper 15% of each page for any and all numbers and save them in a list of lists
+    try:
+        num_pages = len(pdf)
+        pages = []
+        search_area_percent = 0.15
 
-#     Returns:
-#         A dictionary mapping destination names to page numbers
-#     """
+        for page_idx in range(num_pages):
+            page = pdf[page_idx]
+            page_width, page_height = page.get_size()
+            top_search_height = page_height * search_area_percent
+            page_text = page.get_textpage()
+            top_text = page_text.get_text_bounded(
+                0, page_height - top_search_height, page_width, page_height
+            )
+            page_candidates = []
+            nums = re.findall(r"\b\d+\b", top_text)
+            for num in nums:
+                try:
+                    n = int(num)
+                    page_candidates.append(n)
+                except ValueError:
+                    continue
+            pages.append(page_candidates)
+        pdf.close()
 
-#     if (
-#         not fundstelle.anfangsseite
-#         or not fundstelle.anfangsseite.isdigit()
-#         or not fundstelle.endseite
-#         or not fundstelle.endseite.isdigit()
-#     ):
-#         report_error(
-#             "Missing anfangsseite or endseite",
-#             f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
-#             False,
-#         )
-#         return {}
-#     anfangsseite = int(fundstelle.anfangsseite)
-#     endseite = int(fundstelle.endseite)
-#     offset = endseite - anfangsseite
-#     if offset < 0:
-#         report_error(
-#             "Anfangsseite is greater than endseite",
-#             f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
-#             False,
-#         )
-#         return {}
+    except Exception as e:
+        logger.critical(
+            "Error processing PDF page",
+            f"Failed to process page {page_idx} of document {dokument.id}: {str(e)}",
+        )
 
-#     url = fundstelle.pdf_url
+    # Keep going through the numbers from each page until we find a sequence of 10 consecutive numbers
+    start = None
+    offset = None
+    done = False
+    pages_missing_numbers = 0
+    sequences = []
+    pages_with_consecutive_numbers_threshold = (
+        10 if len(pages) >= 20 else len(pages) // 2
+    )
+    verify_last_pages = (
+        min(5, len(pages) - pages_with_consecutive_numbers_threshold)
+        if len(pages) > 20
+        else 0
+    )
 
-#     with requests.get(url) as response:
-#         pdf = pypdfium2.PdfDocument(response.content)
+    for i, page in enumerate(pages):
+        if done:
+            break
 
-#     doc_handle = pdf.raw
+        # empty pages dont have numbers printed on them. This way, they don't break the sequence, but they don't count towards the threshold, either
+        if not page:
+            pages_missing_numbers += 1
+            continue
 
-#     # get the count of named destinations
-#     count = pdfium_c.FPDF_CountNamedDests(doc_handle)
+        continued_sequences = []
+        new_sequences = []
 
-#     destinations = {}
+        for candidate in page:
+            if done:
+                break
 
-#     # For each destination
-#     for i in range(count):
-#         # First, get the required buffer size
-#         buflen = ctypes.c_long(0)
-#         dest_handle = pdfium_c.FPDF_GetNamedDest(
-#             doc_handle, i, None, ctypes.byref(buflen)
-#         )
+            continues_sequence = False
 
-#         if not dest_handle:
-#             print(f"No destination found for index {i}")
-#             continue
+            for j, sequence in enumerate(sequences):
+                # dont append more than one number to each sequence per page
+                if j in continued_sequences:
+                    continue
 
-#         # If buffer length is returned as -1, something went wrong
-#         if buflen.value <= 0:
-#             print(f"Error getting buffer size for destination {i}")
-#             continue
+                if candidate == sequence[-1] + 1 + pages_missing_numbers:
+                    continues_sequence = True
+                    sequence.append(candidate)
+                    continued_sequences.append(j)
 
-#         # Allocate buffer for the destination name
-#         buffer = ctypes.create_string_buffer(buflen.value)
+                    if len(sequence) >= pages_with_consecutive_numbers_threshold:
+                        # if our sequence covers the length of the document, we are done
+                        if not verify_last_pages or i >= len(pages) - verify_last_pages:
+                            done = True
+                            start = i - pages_with_consecutive_numbers_threshold + 1
+                            offset = candidate - i
+                            break
+                        else:
+                            # check if the sequence still holds for any of the last 5 pages
+                            # (technically, just checking the last page should be enough, but this should be a bit more robust)
+                            for k in range(
+                                len(pages) - 1, len(pages) - 1 - verify_last_pages, -1
+                            ):
+                                if any(
+                                    final_candidate == candidate + k - i
+                                    for final_candidate in pages[k]
+                                ):
+                                    done = True
+                                    start = (
+                                        i - pages_with_consecutive_numbers_threshold + 1
+                                    )
+                                    offset = candidate - i
+                                    break
 
-#         # Second call to get the actual name
-#         pdfium_c.FPDF_GetNamedDest(doc_handle, i, buffer, ctypes.byref(buflen))
+                            if done:
+                                break
 
-#         # Skip the last 2 bytes which are null terminators
-#         name_bytes = buffer.raw[: buflen.value - 2]
+                            # if it does not, report an error
+                            logger.critical(
+                                "Error mapping internal to external page numbers",
+                                f"Found {pages_with_consecutive_numbers_threshold} consecutive numbers on pages {i - pages_with_consecutive_numbers_threshold} to {i}.\n"
+                                f"However, the last page {pages[-1]} does not have the expected internal page number {candidate + len(pages) - i}.\n"
+                                f"Instead, the last page contains these numbers: {', '.join(str(n) for n in pages[-1])}.\n"
+                                f"Error occurred on document {dokument.id} with url {url}.",
+                            )
 
-#         # Convert from UTF-16LE to Python string
-#         try:
-#             dest_name = name_bytes.decode("utf-16le")
-#             # Get the page index from the destination handle
-#             page_index = pdfium_c.FPDFDest_GetDestPageIndex(doc_handle, dest_handle)
+            # if the candidate did not continue any sequences, it may be the start of a new sequence
+            if not continues_sequence:
+                new_sequences.append([candidate])
 
-#             # Page indices are 0-based in PDFium, convert to 1-based for user-friendly display
-#             page_number = page_index + 1 if page_index >= 0 else None
+        pages_missing_numbers = 0
 
-#             destinations[dest_name] = page_number
-#         except UnicodeDecodeError:
-#             print(
-#                 f"Error decoding destination name or page number at index {i} / {count} for url: {url}, fundstelle id: {fundstelle.id}"
-#             )
+        # remove sequences that were not continued on the current page
+        for j in range(len(sequences) - 1, -1, -1):
+            if j not in continued_sequences:
+                sequences.pop(j)
 
-#     print(f"found {len(destinations.keys())} named destinations")
+        sequences += new_sequences
 
-#     mapped_anfangsseite, mapped_endseite = None, None
-
-#     # The function should return at this point if the DIP values for anfangsseite and endseite are in the destinations dictionary
-#     if (mapped_anfangsseite := destinations.get(f"P.{anfangsseite}", None)) and (
-#         mapped_endseite := destinations.get(f"P.{endseite}", None)
-#     ):
-#         return destinations
-
-#     # if we get here, the DIP values for anfangsseite and endseite are not in the destinations dictionary
-#     # so we need to approximate them
-#     lowest_destination = min(
-#         int(k.split(".")[1])
-#         for k in destinations.keys()
-#         if k.startswith("P.") and k.split(".")[1].isdigit()
-#     )
-#     highest_destination = max(
-#         int(k.split(".")[1])
-#         for k in destinations.keys()
-#         if k.startswith("P.") and k.split(".")[1].isdigit()
-#     )
-
-#     def approximate_destination(seite):
-#         i = 1
-#         mapped_seite = None
-#         while (
-#             not (mapped_seite := destinations.get(f"P.{seite - i}", None))
-#             and seite - i >= lowest_destination
-#         ):
-#             i += 1
-#         if mapped_seite:
-#             return mapped_seite + i
-
-#         i = 1
-#         while (
-#             not (mapped_seite := destinations.get(f"P.{seite + i}", None))
-#             and seite + i <= highest_destination
-#         ):
-#             i += 1
-#         if mapped_seite:
-#             return mapped_seite - i
-
-#         report_error(
-#             "Failed to approximate destination",
-#             f"Failed to approximate destination for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, page: {seite}, destinations: {destinations}",
-#             False,
-#         )
-#         return None
-
-#     mapped_anfangsseite = mapped_anfangsseite or approximate_destination(anfangsseite)
-#     mapped_endseite = mapped_endseite or approximate_destination(endseite)
-
-#     # if the approximation failed for either anfangsseite or endseite, we try to approximate it based on the other one and the offset
-#     mapped_anfangsseite = mapped_anfangsseite or (
-#         mapped_endseite - offset if mapped_endseite else None
-#     )
-#     mapped_endseite = mapped_endseite or (
-#         mapped_anfangsseite + offset if mapped_anfangsseite else None
-#     )
-
-#     if mapped_anfangsseite and mapped_endseite:
-#         if mapped_anfangsseite > mapped_endseite:
-#             report_error(
-#                 "Invalid destination mapping - anfangsseite is greater than endseite",
-#                 f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, anfangsseite: {anfangsseite}, endseite: {endseite}, destinations: {destinations}",
-#                 False,
-#             )
-#             return {}
-#         else:
-#             destinations[f"P.{anfangsseite}"] = mapped_anfangsseite
-#             destinations[f"P.{endseite}"] = mapped_endseite
-#             return destinations
-#     else:
-#         report_error(
-#             "Failed to map destinations",
-#             f"Failed to map destinations for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, destinations: {destinations}",
-#             False,
-#         )
-#         return {}
+    if start and offset is not None:
+        logger.debug(
+            f"Finished mapping internal page numbers for dokument with id: {dokument.id} and url: {url}.\n"
+            f"Internal page numbers start on internal page {start + 1} (1-indexed), which has external page number {start + offset}, making the offset {offset - 1}."
+        )
+        return offset -1 # -1 because our list was 0-indexed, but to the reader, pdf pages are 1-indexed (likewise, start would have to be +1, if it was going to be returned at all)
+    else:
+        logger.critical(
+            "Error mapping internal to external page numbers",
+            f"Could not find a sequence of {pages_with_consecutive_numbers_threshold} consecutive numbers on the first {len(pages)} pages.\n"
+            f"Error occurred on document {dokument.id} with url {url}.",
+        )
 
 
-# def store_markdown():
-#     positionen = (
-#         db.session.query(Vorgangsposition)
-#         .join(Fundstelle, Fundstelle.positions_id == Vorgangsposition.id)
-#         .filter(
-#             or_(
-#                 Fundstelle.anfangsseite != Fundstelle.endseite,
-#                 and_(Fundstelle.anfangsseite == None, Fundstelle.endseite == None),
-#             )
-#         )
-#         .filter(~Fundstelle.dokument.has())
-#         .all()
-#     )
+def update_all_pdf_urls():
+    """Maps the pdf_url of all fundstellen from the Bundesrat for which this hasn't been done yet."""
 
-#     for position in positionen:
-#         fundstelle = position.fundstelle
+    fundstellen = (
+        db.session.query(Fundstelle)
+        .filter(
+            Fundstelle.pdf_url.like("%#P.%"),
+            Fundstelle.herausgeber == "BR",
+            Fundstelle.mapped_pdf_url == None,
+        )
+        .all()
+    )
+    fundstellen_groups = {}
+    for fundstelle in fundstellen:
+        fundstellen_groups[fundstelle.dokumentnummer] = fundstellen_groups.get(
+            fundstelle.dokumentnummer, []
+        ) + [fundstelle]
+    for group in fundstellen_groups.values():
+        offset = map_pdf_without_destinations(group[0])
+        for fundstelle in group:
+            try:
+                internal_page = fundstelle.pdf_url.split("#P.")[1]
+                external_page = int(internal_page) - offset
+                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
+                    f"#P.{internal_page}", f"#page={external_page}"
+                )
+                logger.debug(f"Old url: {fundstelle.pdf_url}")
+                logger.debug(f"New url: {fundstelle.mapped_pdf_url}")
+            except Exception as e:
+                logger.debug(
+                    f"Error mapping pdf url for fundstelle {fundstelle.id}: {e}, url: {fundstelle.pdf_url}"
+                )
+        db.session.commit()
 
-#         if fundstelle.dokument:
-#             continue
 
-#         if "#P." in fundstelle.pdf_url and (
-#             not fundstelle.mapped_pdf_url
-#             or not fundstelle.anfangsseite_mapped
-#             or not fundstelle.endseite_mapped
-#         ):
-#             anfangsseite, endseite = None, None
-#             if fundstelle.herausgeber == "BR":
-#                 try:
-#                     start, offset = map_pdf_pages(fundstelle)
-#                     anfangsseite_internal = fundstelle.anfangsseite
-#                     anfangsseite = int(anfangsseite_internal) - offset
-#                     endseite = int(fundstelle.endseite) - offset
-#                     fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-#                         f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
-#                     )
-#                 except Exception as e:
-#                     report_error(
-#                         "Error mapping destinations to pages",
-#                         f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-#                         False,
-#                     )
-#             elif fundstelle.herausgeber == "BT":
-#                 try:
-#                     destinations = map_pdf_destinations_to_pages(fundstelle)
-#                     anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
-#                     endseite = int(destinations[f"P.{fundstelle.endseite}"])
-#                 except Exception as e:
-#                     report_error(
-#                         "Error mapping destinations to pages",
-#                         f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-#                         False,
-#                     )
-#             else:
-#                 report_error(
-#                     "Error mapping destinations to pages",
-#                     f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
-#                     False,
-#                 )
+def map_pdf_with_destinations(fundstelle: Fundstelle):
+    """
+    Get all named destinations from a PDF file. Used for pdf files from the Bundestag, where internal page numbers are layed out as named destinations.
 
-#             fundstelle.anfangsseite_mapped = anfangsseite
-#             fundstelle.endseite_mapped = endseite
+    Args:
+        pdf_path: Path to the PDF file
 
-#         update_dokument(position, fundstelle)
+    Returns:
+        A dictionary mapping destination names to page numbers
+    """
 
-#     db.session.close()
-#     db.engine.dispose()
+    if (
+        not fundstelle.anfangsseite
+        or not fundstelle.anfangsseite.isdigit()
+        or not fundstelle.endseite
+        or not fundstelle.endseite.isdigit()
+    ):
+        logger.critical(
+            "Missing anfangsseite or endseite",
+            f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
+        )
+        return {}
+    
+    anfangsseite = int(fundstelle.anfangsseite)
+    endseite = int(fundstelle.endseite)
+    offset = endseite - anfangsseite
+    if offset < 0:
+        logger.critical(
+            "Anfangsseite is greater than endseite",
+            f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}",
+        )
+        return {}
+
+    url = fundstelle.pdf_url
+
+    with requests.get(url) as response:
+        pdf = pypdfium2.PdfDocument(response.content)
+
+    doc_handle = pdf.raw
+
+    # get the count of named destinations
+    count = pdfium_c.FPDF_CountNamedDests(doc_handle)
+
+    destinations = {}
+
+    # For each destination
+    for i in range(count):
+        # First, get the required buffer size
+        buflen = ctypes.c_long(0)
+        dest_handle = pdfium_c.FPDF_GetNamedDest(
+            doc_handle, i, None, ctypes.byref(buflen)
+        )
+
+        if not dest_handle:
+            logger.debug(f"No destination found for index {i}")
+            continue
+
+        # If buffer length is returned as -1, something went wrong
+        if buflen.value <= 0:
+            logger.debug(f"Error getting buffer size for destination {i}")
+            continue
+
+        # Allocate buffer for the destination name
+        buffer = ctypes.create_string_buffer(buflen.value)
+
+        # Second call to get the actual name
+        pdfium_c.FPDF_GetNamedDest(doc_handle, i, buffer, ctypes.byref(buflen))
+
+        # Skip the last 2 bytes which are null terminators
+        name_bytes = buffer.raw[: buflen.value - 2]
+
+        # Convert from UTF-16LE to Python string
+        try:
+            dest_name = name_bytes.decode("utf-16le")
+            # Get the page index from the destination handle
+            page_index = pdfium_c.FPDFDest_GetDestPageIndex(doc_handle, dest_handle)
+
+            # Page indices are 0-based in PDFium, convert to 1-based for user-friendly display
+            page_number = page_index + 1 if page_index >= 0 else None
+
+            destinations[dest_name] = page_number
+        except UnicodeDecodeError:
+            logger.debug(
+                f"Error decoding destination name or page number at index {i} / {count} for url: {url}, fundstelle id: {fundstelle.id}"
+            )
+
+    logger.debug(f"found {len(destinations.keys())} named destinations")
+
+    mapped_anfangsseite, mapped_endseite = None, None
+
+    # The function should return at this point if the DIP values for anfangsseite and endseite are in the destinations dictionary
+    if (mapped_anfangsseite := destinations.get(f"P.{anfangsseite}", None)) and (
+        mapped_endseite := destinations.get(f"P.{endseite}", None)
+    ):
+        return destinations
+
+    # if we get here, the DIP values for anfangsseite and endseite are not in the destinations dictionary
+    # so we need to approximate them
+    lowest_destination = min(
+        int(k.split(".")[1])
+        for k in destinations.keys()
+        if k.startswith("P.") and k.split(".")[1].isdigit()
+    )
+    highest_destination = max(
+        int(k.split(".")[1])
+        for k in destinations.keys()
+        if k.startswith("P.") and k.split(".")[1].isdigit()
+    )
+
+    def approximate_destination(seite):
+        i = 1
+        mapped_seite = None
+        while (
+            not (mapped_seite := destinations.get(f"P.{seite - i}", None))
+            and seite - i >= lowest_destination
+        ):
+            i += 1
+        if mapped_seite:
+            return mapped_seite + i
+
+        i = 1
+        while (
+            not (mapped_seite := destinations.get(f"P.{seite + i}", None))
+            and seite + i <= highest_destination
+        ):
+            i += 1
+        if mapped_seite:
+            return mapped_seite - i
+
+        logger.critical(
+            "Failed to approximate destination",
+            f"Failed to approximate destination for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, page: {seite}, destinations: {destinations}",
+        )
+        return None
+
+    mapped_anfangsseite = mapped_anfangsseite or approximate_destination(anfangsseite)
+    mapped_endseite = mapped_endseite or approximate_destination(endseite)
+
+    # if the approximation failed for either anfangsseite or endseite, we try to approximate it based on the other one and the offset
+    mapped_anfangsseite = mapped_anfangsseite or (
+        mapped_endseite - offset if mapped_endseite else None
+    )
+    mapped_endseite = mapped_endseite or (
+        mapped_anfangsseite + offset if mapped_anfangsseite else None
+    )
+
+    if mapped_anfangsseite and mapped_endseite:
+        if mapped_anfangsseite > mapped_endseite:
+            logger.critical(
+                "Invalid destination mapping - anfangsseite is greater than endseite",
+                f"Fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, anfangsseite: {anfangsseite}, endseite: {endseite}, destinations: {destinations}",
+            )
+            return {}
+        else:
+            destinations[f"P.{anfangsseite}"] = mapped_anfangsseite
+            destinations[f"P.{endseite}"] = mapped_endseite
+            return destinations
+    else:
+        logger.critical(
+            "Failed to map destinations",
+            f"Failed to map destinations for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}, destinations: {destinations}",
+        )
+        return {}
+
+
+def store_markdown():
+    positionen = (
+        db.session.query(Vorgangsposition)
+        .join(Fundstelle, Fundstelle.positions_id == Vorgangsposition.id)
+        .filter(
+            or_(
+                Fundstelle.anfangsseite_mapped == None, Fundstelle.endseite_mapped == None
+            )
+        )
+        .filter(Fundstelle.pdf_url.like("%#P.%"))
+        .all()
+    )
+
+    for position in positionen:
+        fundstelle = position.fundstelle
+
+        if fundstelle.dokument:
+            continue
+
+        if "#P." in fundstelle.pdf_url and (
+            not fundstelle.mapped_pdf_url
+            or not fundstelle.anfangsseite_mapped
+            or not fundstelle.endseite_mapped
+        ):
+            anfangsseite, endseite = None, None
+            if fundstelle.herausgeber == "BR":
+                try:
+                    offset = map_pdf_without_destinations(fundstelle)
+                    anfangsseite_internal = fundstelle.anfangsseite
+                    anfangsseite = int(anfangsseite_internal) - offset
+                    endseite = int(fundstelle.endseite) - offset
+                    fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
+                        f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
+                    )
+                except Exception as e:
+                    logger.critical(
+                        "Error mapping destinations to pages",
+                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
+                    )
+            elif fundstelle.herausgeber == "BT":
+                try:
+                    destinations = map_pdf_with_destinations(fundstelle)
+                    anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
+                    endseite = int(destinations[f"P.{fundstelle.endseite}"])
+                except Exception as e:
+                    logger.critical(
+                        "Error mapping destinations to pages",
+                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
+                    )
+            else:
+                logger.critical(
+                    "Error mapping destinations to pages",
+                    f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
+                )
+
+            fundstelle.anfangsseite_mapped = anfangsseite
+            fundstelle.endseite_mapped = endseite
+
+        db.session.commit()
+        # update_dokument(position, fundstelle)
+
+    db.session.close()
+    db.engine.dispose()
 
 
 if __name__ == "__main__":
+    last_update = get_last_update()
     daily_update()

@@ -1,8 +1,27 @@
 from gesetzgebung.es_file import es, ES_LAWS_INDEX
 from gesetzgebung.flask_file import app
-
-# from gesetzgebung.models import * # TODO: just in case of issues: this used to be here and not in config.py, but db.create_all() needs models
-from gesetzgebung.helpers import *
+from gesetzgebung.models import *
+from gesetzgebung.helpers import (
+    merge_beschluesse,
+    parse_actors,
+    parse_beschluesse,
+    create_link,
+    get_structured_data_from_ai,
+    get_text_data_from_ai,
+    pfade,
+    praepositionen_akkusativ,
+    praepositionen_dativ,
+    praepositionen_genitiv,
+    praepositionen_nominativ,
+    zuordnungen,
+    abstimmung_ueber_va_vorschlag_im_br,
+    ueberstimmung_des_br_bei_einspruchsgesetz,
+    zweite_beratung,
+    dritte_beratung,
+    zweite_und_dritte_beratung,
+    abstimmung_ueber_vermittlungsvorschlag_im_bt,
+)
+from gesetzgebung.logger import get_logger
 
 from flask import render_template, request, jsonify, stream_with_context, Response, session
 import datetime
@@ -33,96 +52,9 @@ from openai import OpenAI
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AI_ENDPOINT = "https://openrouter.ai/api/v1"
 client = OpenAI(base_url=AI_ENDPOINT, api_key=AI_API_KEY)
-
 ### Everything related to RAG
 
-
-def query_from_spacy(titel, nlp):
-    # This function is no longer needed, as extract_abbreviation + AI query generation yields superior results
-    synonyms = {
-        "Strafgesetzbuch*": "(Strafgesetzbuch* | StGB)",
-        "Sozialgesetzbuch*": "(Sozialgesetzbuch* | SGB)",
-        "Strafprozessordnung*": "(Strafprozessordnung | StPO)",
-        "EU*": "(EU* | Europäische* Union)",
-        "Union*": "(EU* | Europäische* Union)",
-        "Rat*": "(EU* | Europäische* Rat*)",
-        "Parlament*": "(EU* | Europäische* Parlament*)",
-    }
-    ignore = {
-        "Änderung",
-        "Vorschrift",
-        "Einführung",
-        "Umsetzung",
-        "Deutschland",
-        "Bundesrepublik",
-        "Rat",
-        "Regierung",
-        "Republik",
-        "Regelung",
-        "§",
-        "Buch",
-        "Vermeidung",
-        "Regelung",
-        "Januar",
-        "Februar",
-        "März",
-        "April",
-        "Mai",
-        "Juni",
-        "Juli",
-        "August",
-        "September",
-        "Oktober",
-        "November",
-        "Dezember",
-        "Protokoll",
-        "Errichtung",
-        "Steuer",
-        "Gebiet",
-        "Maßnahme",
-        "Einkommen",
-        "Neuregelung",
-        "Person",
-        "Haushaltsjahr",
-        "Mitgliedstaat",
-        "Bereich",
-        "Vermögen",
-        "Zusammenhang",
-        "Zusammenarbeit",
-        "Jahr",
-        "Rahmenbedingung",
-        "Weiterentwicklung",
-        "Sicherstellung",
-        "Bestimmung",
-        "Ausgestaltung",
-        "Artikel",
-        "Bezug",
-    }
-    law_alternatives = {"Richtlinie", "Verordnung", "Übereinkommen", "Abkommen"}
-    word = ""
-    words = []
-    doc = nlp(titel)
-
-    for token in doc:
-        if token.pos_ in {"NOUN", "PROPN"} and token.lemma_ not in ignore:
-            # "Aufenthalt von Drittstaatsangehörigen" -> "Drittstaatsangehörige*", BUT "Vermeidung von Erzeugungsüberschüssen" -> "Erzeugungsüberschüsse", not "Erzeugungsüberschuss"
-            word = f"{token.text[:-1]}*" if "Number=Plur" in token.morph and "Case=Dat" in token.morph and not token.text.startswith(token.lemma_) else f"{token.lemma_}*"
-        elif (offset := token.lemma_.find("rechtlich")) > 0:
-            if token.lemma_[offset - 1] == "s":  # versicherungSrechtlich
-                offset -= 1
-            word = f"({token.lemma_[0].lower()}{token.lemma_[1:offset]}* | {token.lemma_[0].upper()}{token.lemma_[1:offset]}*)"  # (versicherung* | Versicherung*)
-
-        if word:
-            if word in synonyms:
-                word = synonyms[word]
-
-            if word not in words:
-                words.append(word)
-
-    if any(word in words for word in law_alternatives) and "Gesetz" in words:
-        words.remove("Gesetz")
-
-    return " + ".join(word for word in words)
+logger = get_logger(__name__)
 
 
 @app.route("/", methods=["GET", "POST"])
