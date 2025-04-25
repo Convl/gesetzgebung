@@ -457,9 +457,12 @@ def parse_law(law, display=True):
     if display:
         i = 0
         while i < len(infos):
-            if infos[i].get("position", None) and infos[i]["position"].summary:
-                sources = "<strong>Quellen:</strong> " + ", ".join(f'<a href="{article.url}">{article.publisher}</a>' for article in infos[i]["position"].summary.articles)
-                text = f'{infos[i]["position"].summary.summary}\n\n{sources}'
+            # TODO: awful hack. Used to just store vorgangspositionen in info["position"], but then info was no longer serializable. Re-querying them one at a time is really inefficient and stupid, but I'm leaving it for now until I get around to doing more major re-factoring.
+            if (position := db.session.query(Vorgangsposition)
+                .filter(Vorgangsposition.id == infos[i].get("id"))
+                .one_or_none()) and position.summary:
+                sources = "<strong>Quellen:</strong> " + ", ".join(f'<a href="{article.url}">{article.publisher}</a>' for article in position.summary.articles)
+                text = f'{position.summary.summary}\n\n{sources}'
 
                 if i + 1 < len(infos):
                     fstring = "%d. %B %Y" if infos[i]["datetime"].year != infos[i + 1]["datetime"].year else ("%d. %B" if infos[i]["datetime"].month != infos[i + 1]["datetime"].month else "%d.")
