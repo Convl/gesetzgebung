@@ -418,19 +418,22 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None, mo
     for retry in range(13):
         # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
         for i, model in enumerate(models):
-            response = client.chat.completions.create(
-                model=model,
-                extra_body={
-                    "models": models[i + 1 :],
-                    "provider": {"require_parameters": True, "sort": "throughput"},
-                    "temperature": 0.5,
-                },
-                messages=messages,
-                response_format={"type": "json_schema", "json_schema": schema},
-            )
-            if response.choices:
-                break
-
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    extra_body={
+                        "models": models[i + 1 :],
+                        "provider": {"require_parameters": True, "sort": "throughput"},
+                        "temperature": 0.5,
+                    },
+                    messages=messages,
+                    response_format={"type": "json_schema", "json_schema": schema},
+                )
+                if response.choices:
+                    break
+            except Exception as e:
+                print(f"Error with model {model}: {e}, messages: {messages}")
+            
         try:
             ai_response = response.choices[0].message.content
             ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
@@ -439,6 +442,7 @@ def get_structured_data_from_ai(client, messages, schema=None, subfield=None, mo
             return ai_response
 
         except Exception as e:
+            # TODO: this may crash if ai_response never gets assigned and/or response does not have these attrs.
             print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
             time.sleep(delay)
             delay *= 2

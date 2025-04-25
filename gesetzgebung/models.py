@@ -1,7 +1,7 @@
 from gesetzgebung.database import db
 from typing import List, ClassVar
 from sqlalchemy.orm import joinedload
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_, func, inspect
 import datetime
 
 
@@ -231,7 +231,7 @@ class Inkrafttreten(db.Model):
     erlaeuterung = db.Column(db.Text)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    inkrafttreten_vorhaben = db.relationship(
+    vorhaben = db.relationship(
         "GesetzesVorhaben", back_populates="inkrafttreten", lazy=False
     )
 
@@ -269,7 +269,7 @@ class GesetzesVorhaben(db.Model):
     )
     inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship(
         "Inkrafttreten",
-        back_populates="inkrafttreten_vorhaben",
+        back_populates="vorhaben",
         lazy=False,
         cascade="all, delete-orphan",
     )

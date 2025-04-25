@@ -1,5 +1,7 @@
 # from elasticsearch import Elasticsearch
 from elasticsearch7 import Elasticsearch
+# from elasticsearch.exceptions import NotFoundError
+from elasticsearch7.exceptions import NotFoundError
 import os
 import warnings
 from urllib3.exceptions import InsecureRequestWarning
@@ -57,3 +59,18 @@ es = Elasticsearch(ES_HOST,
 
 if not es.indices.exists(index=ES_LAWS_INDEX):
     es.indices.create(index=ES_LAWS_INDEX, body=index_body)
+
+def update_law_in_es(law):
+    try:
+        es_law = es.get(index=ES_LAWS_INDEX, id=law.id)
+        if law.titel == es_law["_source"].get("titel") and law.abstract == es_law["_source"].get("abstract"):
+            return
+
+    except NotFoundError:
+        pass
+
+    es.index(
+        index=ES_LAWS_INDEX,
+        id=law.id,
+        body={"titel": law.titel, "abstract": law.abstract},
+    )
