@@ -1,4 +1,6 @@
+print("Loading run.py")
 from gesetzgebung import app
+print("App imported, routes:", [rule.rule for rule in app.url_map.iter_rules()])
 
 if __name__ == "__main__":
     if app.config["DEBUG"]:
