@@ -785,8 +785,6 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             # skip the article if we cannot download / parse it
             try:
                 news_article = newspaper.article(article["url"], language="de")
-                news_article.download()
-                news_article.parse()
             except Exception as e:
                 logger.info(f"Error parsing news article: {e}")
                 continue
