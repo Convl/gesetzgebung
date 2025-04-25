@@ -74,8 +74,8 @@ LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
 SUMMARY_LENGTH = 700
 IDEAL_ARTICLE_COUNT = 5
-MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 2
-MINIMUM_ARTICLE_LENGTH = 3500
+MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
+MINIMUM_ARTICLE_LENGTH = 3000
 MAXIMUM_ARTICLE_LENGTH = 20000
 NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT = 20
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
@@ -315,7 +315,7 @@ def update_news_update_candidates() -> None:
                 position_age = now - position.datum
                 next_interval = next((interval for interval in NEWS_UPDATE_INTERVALS if interval > position_age), 
                                     NEWS_UPDATE_INTERVALS[-1])
-                candidate.next_update = position.datum + next_interval
+                candidate.next_update = now + next_interval
                 candidate.update_count += 1
             db.session.commit()
 
@@ -515,6 +515,7 @@ def update_positionen(law : GesetzesVorhaben) -> None:
                     news_update_candidate.next_update = None
                     db.session.add(news_update_candidate)
                     db.session.commit()
+                    logger.info(f"Added NewsUpdateCandidate with id: {news_update_candidate.id} for Vorgangsposition with id: {position.id}")
 
         time.sleep(1)
         params["cursor"] = cursor = response_data.get("cursor", None)
@@ -668,6 +669,7 @@ def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle, pdf: pyp
     logger.info(f"Added Dokument with internal id {dokument.id} for {fundstelle_infos}")
 
 
+@log_indent
 def get_news(client : OpenAI, gn : GNews, position : Vorgangsposition, infos : list[dict], saved_for_rollback : list[SavedNewsUpdateCandidate], law : GesetzesVorhaben) -> NewsInfo:
     """Finds news articles for a given Vorgangsposition and returns a NewsInfo object"""
 
@@ -703,22 +705,22 @@ def get_news(client : OpenAI, gn : GNews, position : Vorgangsposition, infos : l
         # if there are no news for this query, continue with the next
         if not (gnews_response := gn.get_news(query)):
             no_news_found += 1
-            logger.debug(f"No news found for query {query_counter}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
+            logger.debug(f"No news found for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
             continue
 
         no_news_found = 0
         num_found = len(gnews_response)
-        logger.debug(f"found {num_found} articles for query {query_counter}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
+        logger.debug(f"found {num_found} articles for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
 
         # use llm to check which articles are likely relevant based on their titles
         evaluate_results_messages = [
             {
                 "content": f"""Du erhältst vom Nutzer eine Liste von strukturierten Daten. 
-                Jeder Eintrag in der Liste besteht aus einer Indexnummer und der Überschrift eines Nachrichtenartikels, die Nachricht des Nutzers wird also folgende Struktur haben: 
-                [{{'index': '1', 'titel': 'Ueberschrift_des_ersten_Nachrichtenartikels'}}, {{'index': '2', 'titel': 'Ueberschrift_des_zweiten_Nachrichtenartikels'}}, etc]. 
-                Deine Aufgabe ist es, für jeden Eintrag anhand der Überschrift zu prüfen, ob der Nachrichtenartikel sich auf das deutsche Gesetz mit dem amtlichen Titel '{law.titel}' bezieht, oder nicht. 
-                Dementsprechend wirst du in das Feld 'passend' in deiner Antwort entweder eine 1 (wenn der Nachrichtenartikel sich auf das Gesetz bezieht) oder eine 0 (wenn der Nachrichtenartikel sich nicht auf das Gesetz bezieht) eintragen.
-                Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {RESULTS_SCHEMA_DUMPS}""",
+Jeder Eintrag in der Liste besteht aus einer Indexnummer und der Überschrift eines Nachrichtenartikels, die Nachricht des Nutzers wird also folgende Struktur haben: 
+[{{'index': '1', 'titel': 'Ueberschrift_des_ersten_Nachrichtenartikels'}}, {{'index': '2', 'titel': 'Ueberschrift_des_zweiten_Nachrichtenartikels'}}, etc]. 
+Deine Aufgabe ist es, für jeden Eintrag anhand der Überschrift zu prüfen, ob der Nachrichtenartikel sich auf das deutsche Gesetz mit dem amtlichen Titel '{law.titel}' bezieht, oder nicht. 
+Dementsprechend wirst du in das Feld 'passend' in deiner Antwort entweder eine 1 (wenn der Nachrichtenartikel sich auf das Gesetz bezieht) oder eine 0 (wenn der Nachrichtenartikel sich nicht auf das Gesetz bezieht) eintragen.
+Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {RESULTS_SCHEMA_DUMPS}""",
                 "role": "system",
             },
             {
@@ -803,6 +805,7 @@ def get_news(client : OpenAI, gn : GNews, position : Vorgangsposition, infos : l
 
     return news_info
 
+@log_indent
 def generate_summary(client : OpenAI, news_info : NewsInfo, position : Vorgangsposition, law : GesetzesVorhaben) -> NewsInfo:
     """Generates a summary for a given Vorgangsposition from a NewsInfo object"""
 
@@ -825,26 +828,25 @@ def generate_summary(client : OpenAI, news_info : NewsInfo, position : Vorgangsp
     generate_summary_messages = [
         {
             "content": f"""Du erhältst vom Nutzer Angaben zu einem Zeitraum innerhalb des Gesetzgebungsverfahrens für das deutsche Gesetz mit dem amtlichen Titel {law.titel}. 
-            Der Nutzer schickt dir das Ereignis, das am Anfang des Zeitraums steht, das Ereignis, das unmittelbar nach dem Ende des Zeitraums eintreten wird, und eine Liste von Nachrichtenartikeln, die innerhalb des Zeitraums erschienen sind.
-            Die Nachricht des Nutzers wird also folgendes Format haben:
-            'start': 'Die Bundesregierung bringt den Gesetzentwurf in den Bundestag ein', 'end': 'Die 1. Lesung im Bundestag findet statt.', 'artikel': ['Nachrichtenartikel 1', 'Nachrichtenartikel 2', etc]
-            
-            Du musst diese Nachricht in zwei Phasen bearbeiten.
-            PHASE 1:
-            Zunächst sollst du alle Nachrichtenartikel überprüfen. Falls ein Nachrichtenartikel sich nicht auf das Gesetz bezieht, oder nicht zu dem vom Nutzer angegebenen Zeitraum passt, MUSST DU IHN IGNORIEREN.
-            Beachte dabei folgendes: Das Ereignis, das im Feld 'end' eines jeden Zeitabschnitts genannt wird, ist **in dem jeweiligen Zeitabschnitt noch nicht passiert**, sondern passiert erst unmittelbar nach diesem Zeitabschnitt. (Es sei denn, der Wert im Feld start markiert das vorläufige oder endgültige Ende des Gesetzgebungsverfahrens, und der Wert im Feld end markiert den heutigen Tag.)
-            Wenn ein Zeitabschnitt also zum Beispiel end = "Die Beratung und Abstimmung im Bundesrat finden statt" hat, und mit diesem Zeitraum ein Nachrichtenartikel verknüpft ist, in dem steht, dass die Abstimmung im Bundesrat schon stattgefunden habe, dann ist dieser Nachrichtenartikel irrtümlich in die Liste der Artikel für diesen Zeitraum geraten, und **muss beim Erstellen der Zusammenfassung für diesen Zeitraum ignoriert werden**.
-            
-            PHASE 2:
-            Wenn du entschieden hast, ob und gegebenenfalls welche Nachrichtenartikel du ignorieren musst, sollst du eine Zusammenfassung der wichtigsten und interessantesten Inhalte der übrigen Nachrichtenartikel erstellen.
-            Falls einzelne Nachrichtenartikel von mehreren, unterschiedlichen Gesetzen handeln, solltest du nur diejenigen Inhalte in die Zusammenfassung aufnehmen, die sich auf das Gesetz mit dem amtlichen Titel {law.titel} beziehen.
-            Wichtige / interessante nachrichtliche Inhalte sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen oder Verbänden sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. 
-            Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese sollte in die Zusammenfassung nur aufgenommen werden, wenn sich aus den Nachrichtenartikeln nichts anderes, interessantes ergibt.            
-            Einleitende Formulierungen wie "Im ersten Zeitraum" oder "In diesem Zeitraum" am Anfang der Zusammenfassung sollst du vermeiden. Du sollst aber auf das Ereignis Bezug nehmen, das den Start des jeweiligen Zeitraums markiert, sofern es in den Nachrichtenartikeln eine Rolle gespielt hat. 
-            Die Zusammenfassung muss mindestens {SUMMARY_LENGTH - 100} und darf höchstens {SUMMARY_LENGTH + 100} Zeichen lang sein.
-            Deine Zusammenfassung soll im Präsens verfasst sein. 
-            Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. Sie darf keine weiteren Informationen enthalten, nicht einmal eine einleitende Überschrift wie zum Beispiel "Zusammenfassung:". 
-            """,
+Der Nutzer schickt dir das Ereignis, das am Anfang des Zeitraums steht, das Ereignis, das unmittelbar nach dem Ende des Zeitraums eintreten wird, und eine Liste von Nachrichtenartikeln, die innerhalb des Zeitraums erschienen sind.
+Die Nachricht des Nutzers wird also folgendes Format haben:
+'start': 'Die Bundesregierung bringt den Gesetzentwurf in den Bundestag ein', 'end': 'Die 1. Lesung im Bundestag findet statt.', 'artikel': ['Nachrichtenartikel 1', 'Nachrichtenartikel 2', etc]
+
+Du musst diese Nachricht in zwei Phasen bearbeiten.
+PHASE 1:
+Zunächst sollst du alle Nachrichtenartikel überprüfen. Falls ein Nachrichtenartikel sich nicht auf das Gesetz bezieht, oder nicht zu dem vom Nutzer angegebenen Zeitraum passt, MUSST DU IHN IGNORIEREN.
+Beachte dabei folgendes: Das Ereignis, das im Feld 'end' eines jeden Zeitabschnitts genannt wird, ist **in dem jeweiligen Zeitabschnitt noch nicht passiert**, sondern passiert erst unmittelbar nach diesem Zeitabschnitt. (Es sei denn, der Wert im Feld start markiert das vorläufige oder endgültige Ende des Gesetzgebungsverfahrens, und der Wert im Feld end markiert den heutigen Tag.)
+Wenn ein Zeitabschnitt also zum Beispiel end = "Die Beratung und Abstimmung im Bundesrat finden statt" hat, und mit diesem Zeitraum ein Nachrichtenartikel verknüpft ist, in dem steht, dass die Abstimmung im Bundesrat schon stattgefunden habe, dann ist dieser Nachrichtenartikel irrtümlich in die Liste der Artikel für diesen Zeitraum geraten, und **muss beim Erstellen der Zusammenfassung für diesen Zeitraum ignoriert werden**.
+
+PHASE 2:
+Wenn du entschieden hast, ob und gegebenenfalls welche Nachrichtenartikel du ignorieren musst, sollst du eine Zusammenfassung der wichtigsten und interessantesten Inhalte der übrigen Nachrichtenartikel erstellen.
+Falls einzelne Nachrichtenartikel von mehreren, unterschiedlichen Gesetzen handeln, solltest du nur diejenigen Inhalte in die Zusammenfassung aufnehmen, die sich auf das Gesetz mit dem amtlichen Titel {law.titel} beziehen.
+Wichtige / interessante nachrichtliche Inhalte sind zum Beispiel: Lob und Kritik zu dem Gesetz, die politische und mediale Auseinandersetzung mit dem Gesetz, Besonderheiten des Gesetzgebungsverfahrens, Klagen gegen das Gesetz, Stellungnahmen von durch das Gesetz betroffenen Personen oder Verbänden sowie einzelne, besonders im Fokus stehende Passagen des Gesetzes. 
+Weniger interessant ist hingegen eine neutrale Schilderung der wesentlichen Inhalte des Gesetzes - diese sollte in die Zusammenfassung nur aufgenommen werden, wenn sich aus den Nachrichtenartikeln nichts anderes, interessantes ergibt.            
+Einleitende Formulierungen wie "Im ersten Zeitraum" oder "In diesem Zeitraum" am Anfang der Zusammenfassung sollst du vermeiden. Du sollst aber auf das Ereignis Bezug nehmen, das den Start des jeweiligen Zeitraums markiert, sofern es in den Nachrichtenartikeln eine Rolle gespielt hat. 
+Die Zusammenfassung muss mindestens {SUMMARY_LENGTH - 100} und darf höchstens {SUMMARY_LENGTH + 100} Zeichen lang sein.
+Deine Zusammenfassung soll im Präsens verfasst sein. 
+Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH die Zusammenfassung enthalten. Sie darf keine weiteren Informationen enthalten, nicht einmal eine einleitende Überschrift wie zum Beispiel "Zusammenfassung:".""",
             "role": "system",
         },
         {
@@ -928,14 +930,13 @@ def generate_search_queries(client : OpenAI, law : GesetzesVorhaben) -> list[str
     generate_search_queries_messages = [
         {
             "content": f"""Du erhältst vom Nutzer den amtlichen Titel eines deutschen Gesetzes. Dieser ist oft sperrig und klingt nach Behördensprache. 
-            Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. 
-            Generiere dann 3 Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz.
-            Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird.  
-            Achte darauf, die einzelnen Suchanfragen nicht so restriktiv zu machen, dass relevante Nachrichtenartikel nicht gefunden werden. 
-            Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. 
-            Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur haben:
-            {QUERIES_SCHEMA_DUMPS}
-            """,
+Überlege zunächst, mit welchen Begriffen in Nachrichtenartikeln vermutlich auf dieses Gesetz Bezug genommen wird. 
+Generiere dann 3 Suchanfragen zum Suchen nach Nachrichtenartieln über das Gesetz.
+Hänge an jedes Wort innerhalb der einzelnen Suchanfragen ein * an. Verwende niemals Worte wie 'Nachricht' oder 'Meldung', die kenntlich machen sollen, dass nach Nachrichtenartikeln gesucht wird.  
+Achte darauf, die einzelnen Suchanfragen nicht so restriktiv zu machen, dass relevante Nachrichtenartikel nicht gefunden werden. 
+Wenn es dir beispielsweise gelingt, ein einzelnes Wort zu finden, das so passend und spezifisch ist, dass es höchstwahrscheinlich nur in Nachrichtenartikeln vorkommt, die auch tatsächlich von dem Gesetz handeln, dann solltest du dieses Wort nicht noch um weitere Worte ergänzen, sondern allein als eine der Suchanfragen verwenden. 
+Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur haben:
+{QUERIES_SCHEMA_DUMPS}""",
             "role": "system",
         },
         {"content": law.titel, "role": "user"},
@@ -1412,71 +1413,6 @@ def map_pdf_with_destinations(fundstelle: Fundstelle, pdf : pypdfium2.PdfDocumen
             subject="Failed to map destinations",
         )
         return {}
-
-
-def store_markdown():
-    positionen = (
-        db.session.query(Vorgangsposition)
-        .join(Fundstelle, Fundstelle.positions_id == Vorgangsposition.id)
-        .filter(
-            or_(
-                Fundstelle.anfangsseite_mapped == None, Fundstelle.endseite_mapped == None
-            )
-        )
-        .filter(Fundstelle.pdf_url.like("%#P.%"))
-        .all()
-    )
-
-    for position in positionen:
-        fundstelle = position.fundstelle
-
-        if fundstelle.dokument:
-            continue
-
-        if "#P." in fundstelle.pdf_url and (
-            not fundstelle.mapped_pdf_url
-            or not fundstelle.anfangsseite_mapped
-            or not fundstelle.endseite_mapped
-        ):
-            anfangsseite, endseite = None, None
-            if fundstelle.herausgeber == "BR":
-                try:
-                    offset = map_pdf_without_destinations(fundstelle)
-                    anfangsseite_internal = fundstelle.anfangsseite
-                    anfangsseite = int(anfangsseite_internal) - offset
-                    endseite = int(fundstelle.endseite) - offset
-                    fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(
-                        f"#P.{anfangsseite_internal}", f"#page={anfangsseite}"
-                    )
-                except Exception as e:
-                    logger.critical(
-                        "Error mapping destinations to pages",
-                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                    )
-            elif fundstelle.herausgeber == "BT":
-                try:
-                    destinations = map_pdf_with_destinations(fundstelle)
-                    anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
-                    endseite = int(destinations[f"P.{fundstelle.endseite}"])
-                except Exception as e:
-                    logger.critical(
-                        "Error mapping destinations to pages",
-                        f"Error mapping destinations to pages for fundstelle id: {fundstelle.id}, url: {fundstelle.pdf_url}: {e}",
-                    )
-            else:
-                logger.critical(
-                    "Error mapping destinations to pages",
-                    f"Invalid Herausgeber {fundstelle.herausgeber} for fundstelle id: {fundstelle.id}.",
-                )
-
-            fundstelle.anfangsseite_mapped = anfangsseite
-            fundstelle.endseite_mapped = endseite
-
-        db.session.commit()
-        # update_dokument(position, fundstelle)
-
-    db.session.close()
-    db.engine.dispose()
 
 def launch():
     with app.app_context():
