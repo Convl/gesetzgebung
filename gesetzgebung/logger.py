@@ -4,7 +4,7 @@ import sys
 import os
 import inspect
 import functools
-from threading import local, RLock
+from threading import local, RLock, get_ident
 from gesetzgebung.models import set_update_active
 
 ERROR_MAIL_PASSWORD = os.environ.get("ERROR_MAIL_PASSWORD")
@@ -16,6 +16,7 @@ INDENT_BY = 4
 logger_dict = {}
 
 # Made some attempts at thread-safety here (nowhere else though...)
+# TODO: Rewrite this to some degree. Encapsulate both LogIndent and _indentation inside CustomLogger, make messages from decorator function log_indent get printed instantly instead of added to a queue.
 _indentation = local()
 _indentation.level = 0
 _indentation.messages = []
@@ -76,6 +77,9 @@ class CustomFormatter(logging.Formatter):
             formatted = "\n".join(message for message in messages) + "\n" + formatted
             setattr(_indentation, "messages", [])
 
+        # add a newline up top
+        formatted = "\n" + formatted
+
         return formatted
 
 
@@ -121,7 +125,7 @@ class CustomLogger(logging.Logger):
         email_handler.setFormatter(formatter)
         self.addHandler(email_handler)
 
-        
+
 
     def debug(self, msg: str, *args, **kwargs):
         self.log(logging.DEBUG, msg, *args, **kwargs)
@@ -156,7 +160,7 @@ class CustomLogger(logging.Logger):
         if level >= logging.CRITICAL:
             super().log(level, "Terminating program due to critical error.", *args, **kwargs)
 
-            if self.name == "daily_update_logger":
+            if self.name == "update_logger":
                 set_update_active(False)
 
             sys.exit(1)
