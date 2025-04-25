@@ -62,7 +62,7 @@ jobs:
         env:
           ES_HOST: ${{ secrets.ES_HOST }}
           ES_LAWS_INDEX: ${{ secrets.ES_LAWS_INDEX }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_TRANSACTION_POOLER_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ERROR_MAIL_PASSWORD: ${{ secrets.ERROR_MAIL_PASSWORD }}
