@@ -34,7 +34,7 @@ from itertools import groupby
 # embeddings = OpenAIEmbeddings()
 
 # ### Below stuff is for storing PDFs in the database
-from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
+# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
