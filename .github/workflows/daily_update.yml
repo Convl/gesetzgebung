@@ -1,8 +1,8 @@
 # GitHub Actions Workflow for running daily_update.py 
 name: Daily Update
 on:
-  schedule:
-    - cron: '0 22 * * *'  # Runs at midnight German time daily
+  #schedule:
+    #- cron: '0 22 * * *'  # Runs at midnight German time daily
   workflow_dispatch:  
 
 jobs:
