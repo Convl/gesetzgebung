@@ -65,7 +65,8 @@ class CustomFormatter(logging.Formatter):
         lines = []
         for line in formatted.splitlines():
             while len(line) > MAX_LOG_LINE_LENGTH:
-                if (cutoff := line[:MAX_LOG_LINE_LENGTH].rfind(" ") + 1) == 0:
+                offset = len(get_indent())
+                if (cutoff := line[:MAX_LOG_LINE_LENGTH].rfind(" ", offset) + 1) == 0:
                     cutoff = MAX_LOG_LINE_LENGTH
                 lines.append(line[:cutoff])
                 line = get_indent() + line[cutoff:]
@@ -158,7 +159,6 @@ class CustomLogger(logging.Logger):
 
         # Here, we can specify individual teardown behaviour depending on where the logger is being used
         if level >= logging.CRITICAL:
-            super().log(level, "Terminating program due to critical error.", *args, **kwargs)
 
             if self.name == "update_logger":
                 set_update_active(False)

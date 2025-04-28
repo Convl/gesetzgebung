@@ -786,7 +786,7 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             try:
                 news_article = newspaper.article(article["url"], language="de")
             except Exception as e:
-                logger.info(f"Error parsing news article: {e}")
+                logger.info(f"Error parsing news article: {str(e)}")
                 continue
 
             # skip the article if it is too short / long / otherwise invalid
