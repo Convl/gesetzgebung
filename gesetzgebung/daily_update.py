@@ -759,6 +759,7 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
         news_info.relevant_hits += len(gnews_response)
         logger.debug(f"Eliminated {num_found - len(gnews_response)} irrelevant articles for query: {query}. {len(gnews_response)} relevant articles remain.")
 
+        saved_for_summary = 0
         # iterate through the relevant articles
         for article in gnews_response:
 
@@ -800,6 +801,9 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             # add the article's text and associated data to our news_info object
             news_info.artikel.append(news_article.text)
             news_info.article_data.append(article)
+            saved_for_summary += 1
+
+        logger.debug(f"Added {saved_for_summary} articles for summary creation. {len(gnews_response) - saved_for_summary} articles were discarded due to e.g. issues with length, failure to download, etc.")
 
     return news_info
 

@@ -99,6 +99,8 @@ def parse_law(law, display=True):
 
     infos = []
 
+    session["titel"] = law.titel
+
     # ---- Phase I: Parse all Vorgangspositionen (what has happened thus far) ---- #
     for position in law.vorgangspositionen:
 
@@ -607,11 +609,14 @@ def chat():
     def generate():
         data = request.get_json()
         user_message = data.get("message", "")
-        law_id = data.get("law_id", "")
-        law = get_law_by_id(law_id)
+
         if not (infos := session.get("infos", None)):
+            law_id = data.get("law_id", "")
+            law = get_law_by_id(law_id)
             infos = parse_law(law, display=False)
             session["infos"] = infos
+            
+        law_titel = session.get("titel", "")
 
         # dokumente = (
         #     db.session.query(Dokument)
@@ -633,7 +638,7 @@ def chat():
 
         dokumente, dokumente_list = [], []
         for info in infos:
-            for dokument_id in info["dokument_ids"]:
+            for dokument_id in info.get("dokument_ids", []):
                 dokument = db.session.query(Dokument).filter(Dokument.id == dokument_id).one_or_none()
                 dokumente_list.append({"id": len(dokumente), "Datum": info["datum"], "Titel": info["vorgangsposition"], "Beschreibung": info["text"], "Herausgeber": "Bundestag" if dokument.herausgeber == "BT" else "Bundesrat" if dokument.herausgeber == "BR" else "Unbekannt"})
                 dokumente.append(dokument)
@@ -675,13 +680,13 @@ def chat():
             {
                 "role": "system",
                 "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen.
-                Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
-                Der Nutzer wird dir seine Frage sowie eine Liste von Vorgangspositionen im Gesetzgebungsverfahren dieses Gesetzes schicken.
-                Du sollst die Frage noch NICHT beantworten.
-                Stattdessen sollst du dir die Liste der Stationen anschauen und dir zu jeder davon überlegen, ob ein Dokument mit detaillierten Informationen zu dieser Vorgangsposition voraussichtlich hilfreich sein wird, um die Frage zu beantworten.                
-                Zu jeder Vorgangsposition ist angegeben: eine id, der Herausgeber (= die Stelle, von der das Dokument mit den detaillierten Informationen zu dieser Vorgangsposition stammt), der Titel der Vorgangsposition innerhalb des Gesetzgebungsverfahrens, eine kurze Beschreibung dessen, was in dieser Vorgangsposition passiert ist, und das Datum der Vorgangsposition.
-                In deiner Antwort wirst du für jede Vorgangsposition in das Feld 'passend' entweder eine 1 (wenn du das zugehörige Dokument mit detaillierten Informationen für sinnvoll zur Beantwortung der Frage hältst) oder eine 0 (wenn du das Dokument für nicht sinnvoll hältst) eintragen.
-                Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(filter_documents_schema, ensure_ascii=False, indent=4)}""",
+Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
+Der Nutzer wird dir seine Frage sowie eine Liste von Vorgangspositionen im Gesetzgebungsverfahren dieses Gesetzes schicken.
+Du sollst die Frage noch NICHT beantworten.
+Stattdessen sollst du dir die Liste der Stationen anschauen und dir zu jeder davon überlegen, ob ein Dokument mit detaillierten Informationen zu dieser Vorgangsposition voraussichtlich hilfreich sein wird, um die Frage zu beantworten.                
+Zu jeder Vorgangsposition ist angegeben: eine id, der Herausgeber (= die Stelle, von der das Dokument mit den detaillierten Informationen zu dieser Vorgangsposition stammt), der Titel der Vorgangsposition innerhalb des Gesetzgebungsverfahrens, eine kurze Beschreibung dessen, was in dieser Vorgangsposition passiert ist, und das Datum der Vorgangsposition.
+In deiner Antwort wirst du für jede Vorgangsposition in das Feld 'passend' entweder eine 1 (wenn du das zugehörige Dokument mit detaillierten Informationen für sinnvoll zur Beantwortung der Frage hältst) oder eine 0 (wenn du das Dokument für nicht sinnvoll hältst) eintragen.
+Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(filter_documents_schema, ensure_ascii=False, indent=4)}""",
             },
             {
                 "role": "user",
@@ -723,7 +728,7 @@ def chat():
             {
                 "role": "system",
                 "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen. 
-            Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law.titel}.
+            Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
             Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
             Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
             },
@@ -743,7 +748,7 @@ def chat():
                 # models=["google/gemini-2.0-flash-001"],
                 # models=["meta-llama/llama-4-maverick"],
                 # models=["google/gemini-2.5-pro-preview-03-25"],
-                models=["google/gemini-2.5-pro-exp-03-25:free"],
+                models=["google/gemini-2.5-pro-exp-03-25"],
                 stream=True,
                 temperature=0.2,
             )
