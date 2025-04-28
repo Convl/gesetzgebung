@@ -1,8 +1,8 @@
 # GitHub Actions Workflow for running daily_update.py 
 name: Daily Update
 on:
-  #schedule:
-    #- cron: '0 22 * * *'  # Runs at midnight German time daily
+  schedule:
+    - cron: '0 22 * * *'  # Runs at midnight German time daily
   workflow_dispatch:  
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
       # Checkout repo
       - name: Checkout
         uses: actions/checkout@v3
-        with:
+        with: # runs against staging branch for now
           ref: staging
       
       # Set up Python
@@ -62,7 +62,7 @@ jobs:
         env:
           ES_HOST: ${{ secrets.ES_HOST }}
           ES_LAWS_INDEX: ${{ secrets.ES_LAWS_INDEX }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.SUPABASE_TRANSACTION_POOLER_URL }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ERROR_MAIL_PASSWORD: ${{ secrets.ERROR_MAIL_PASSWORD }}
