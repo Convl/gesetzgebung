@@ -2,7 +2,7 @@
 name: Daily Update
 on:
   schedule:
-    - cron: '52 10 * * *'  # Runs at midnight German time daily
+    - cron: '0 22 * * *'  # Runs at midnight German time daily
   workflow_dispatch:  
 
 jobs:
