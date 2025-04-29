@@ -728,9 +728,9 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             {
                 "role": "system",
                 "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen. 
-            Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
-            Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
-            Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
+Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
+Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
+Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
             },
             {
                 "role": "user",
