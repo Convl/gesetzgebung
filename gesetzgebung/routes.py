@@ -72,7 +72,7 @@ def submit(law_titel):
     return parse_law(law)
 
 
-def parse_law(law, display=True):
+def parse_law(law, display=True, use_session=True):
     # ------------------ Phase 0: Gather preliminary information ----------------- #
     nachtraege = db.session.execute(
         db.select(Vorgangsposition.vorgangsposition, Fundstelle.pdf_url, Dokument.id).filter(
@@ -98,6 +98,10 @@ def parse_law(law, display=True):
     law.vorgangspositionen.sort(key=lambda vp: vp.datum)  # TODO: Find out why this is even necessary (in rare cases, like dip_id 315332)
 
     infos = []
+
+    # hack to not use Flask's session context when called from daily_update
+    if not use_session:
+        session = {}
 
     session["titel"] = law.titel
 

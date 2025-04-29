@@ -261,7 +261,7 @@ def update_news_update_candidates() -> None:
         law = get_law_by_id(law_id)
         
         # we use the parse_law function with display=False from the webapp here to get some more info to later feed to the llm about the Vorgangspositionen that mark the start and end of a given timespan.
-        infos = parse_law(law, display=False)
+        infos = parse_law(law, display=False, use_session=False)
 
         # The function for summarizing news articles informs the LLM about the Vorgangspositionen after / before which the news articles have been published. Since there is no Vorgangsposition after the most recent one, we create a dummy node to cover this time period.  
         completion_state = "Das Ereignis, das den Start dieses Zeitraums markiert, markiert zugleich den erfolgreichen Abschluss des Gesetzgebungsverfahrens." if any(
