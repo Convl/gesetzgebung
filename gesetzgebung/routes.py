@@ -74,6 +74,7 @@ def submit(law_titel):
 
 def parse_law(law, display=True, use_session=True):
     # ------------------ Phase 0: Gather preliminary information ----------------- #
+    
     nachtraege = db.session.execute(
         db.select(Vorgangsposition.vorgangsposition, Fundstelle.pdf_url, Dokument.id).filter(
             Fundstelle.positions_id == Vorgangsposition.id,
@@ -99,11 +100,9 @@ def parse_law(law, display=True, use_session=True):
 
     infos = []
 
-    # hack to not use Flask's session context when called from daily_update
-    if not use_session:
-        session = {}
-
-    session["titel"] = law.titel
+    # Handle session access based on whether we're in Flask or daily_update context
+    session_storage = {} if not use_session else session
+    session_storage["titel"] = law.titel
 
     # ---- Phase I: Parse all Vorgangspositionen (what has happened thus far) ---- #
     for position in law.vorgangspositionen:
@@ -489,7 +488,7 @@ def parse_law(law, display=True, use_session=True):
     for info in infos:
         if info.get("marks_failure", None):
             if display:
-                session["infos"] = infos
+                session_storage["infos"] = infos
                 return render_template(
                     "results.html",
                     titel=law.titel,
@@ -505,7 +504,7 @@ def parse_law(law, display=True, use_session=True):
             if beratungsstand == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten":
                 info["text"] += "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
                 if display:
-                    session["infos"] = infos
+                    session_storage["infos"] = infos
                     return render_template(
                         "results.html",
                         titel=law.titel,
@@ -573,7 +572,7 @@ def parse_law(law, display=True, use_session=True):
             station["vorgangsposition"] = station["vorgangsposition"][0]
         infos.append(station)
 
-    session["infos"] = infos
+    session_storage["infos"] = infos
     return render_template(
         "results.html",
         titel=law.titel,
