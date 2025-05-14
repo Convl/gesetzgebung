@@ -750,8 +750,8 @@ Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfrei
                 answer_question_messages,
                 # models=["google/gemini-2.0-flash-001"],
                 # models=["meta-llama/llama-4-maverick"],
-                # models=["google/gemini-2.5-pro-preview-03-25"],
-                models=["google/gemini-2.5-pro-exp-03-25"],
+                models=["google/gemini-2.5-pro-preview"],
+                # models=["google/gemini-2.5-pro-exp-03-25"],
                 stream=True,
                 temperature=0.2,
             )
