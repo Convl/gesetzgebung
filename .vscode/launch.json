@@ -11,6 +11,7 @@
             "program": "${workspaceFolder}/run.py",
             "console": "integratedTerminal",
             "justMyCode": false,
+            "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "2"},
         }
     ]
 }

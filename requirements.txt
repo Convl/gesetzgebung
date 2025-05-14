@@ -1,7 +1,6 @@
 # cant use with bonsai elasticsearch==8.16.0
 elasticsearch7==7.13.4
 Flask==3.1.0
-# no longer needed Flask_APScheduler==1.13.1
 flask_sqlalchemy==3.1.1
 psycopg2_binary==2.9.10
 python-dotenv==1.0.1
@@ -12,5 +11,8 @@ newspaper4k==0.9.3.1
 numpy<2
 lxml_html_clean==0.4.1
 openai==1.65.1
-gnews==0.4.0
-googlenewsdecoder==0.1.7
+# below packages are only needed for daily_update / GitHub Actions
+#gnews==0.4.0
+#googlenewsdecoder==0.1.7
+#docling==2.28.0
+#pypdfium2==4.30.1
