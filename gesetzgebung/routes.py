@@ -617,7 +617,7 @@ def chat():
         if not (infos := session.get("infos", None)):
             law_id = data.get("law_id", "")
             law = get_law_by_id(law_id)
-            infos = parse_law(law, display=False)
+            infos = parse_law(law, display=False, use_session=True)
             session["infos"] = infos
             
         law_titel = session.get("titel", "")

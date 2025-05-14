@@ -975,13 +975,13 @@ def extract_shorthand(titel : str) -> str:
     
     # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
     shorthand_start = max(shorthand_start, 
-                          titel.find("- und ", start=shorthand_start, end=len(titel) - 1) + len("- und "))
+                          titel.find("- und ", shorthand_start, len(titel) - 1) + len("- und "))
 
     # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
-    shorthand_end = titel.find(" - ", start=shorthand_start, end=len(titel) - 1) if titel.find(" - ", start=shorthand_start, end=len(titel) - 1) > 0 else len(titel) - 1  
+    shorthand_end = titel.find(" - ", shorthand_start, len(titel) - 1) if titel.find(" - ", shorthand_start, len(titel) - 1) > 0 else len(titel) - 1  
 
     # same thing, except with long dash
-    shorthand_end = titel.find(" – ", start=shorthand_start, end=len(titel) - 1) if titel.find(" – ", start=shorthand_start, end=len(titel) - 1) > 0 else len(titel) - 1  
+    shorthand_end = titel.find(" – ", shorthand_start, len(titel) - 1) if titel.find(" – ", shorthand_start, len(titel) - 1) > 0 else len(titel) - 1  
 
     shorthand = f"{titel[shorthand_start:shorthand_end]}*"
     return shorthand
