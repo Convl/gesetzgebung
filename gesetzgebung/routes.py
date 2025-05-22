@@ -489,7 +489,7 @@ def parse_law(law, display=True, use_session=True):
     for info in infos:
         if info.get("marks_failure", None):
             if display:
-                session_storage["infos"] = infos
+                session_storage["infos"] = [inf for inf in infos if inf["vorgangsposition"] != "Nachrichtenartikel"]
                 return render_template(
                     "results.html",
                     titel=law.titel,
@@ -505,7 +505,7 @@ def parse_law(law, display=True, use_session=True):
             if beratungsstand == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten":
                 info["text"] += "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
                 if display:
-                    session_storage["infos"] = infos
+                    session_storage["infos"] = [inf for inf in infos if inf["vorgangsposition"] != "Nachrichtenartikel"]
                     return render_template(
                         "results.html",
                         titel=law.titel,
@@ -573,7 +573,7 @@ def parse_law(law, display=True, use_session=True):
             station["vorgangsposition"] = station["vorgangsposition"][0]
         infos.append(station)
 
-    session_storage["infos"] = infos
+    session_storage["infos"] = [inf for inf in infos if inf["vorgangsposition"] != "Nachrichtenartikel"]
     return render_template(
         "results.html",
         titel=law.titel,
