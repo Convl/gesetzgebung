@@ -3,28 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
     <link href="https://fonts.googleapis.com/css?family=Open+Sans:400,600,700|Poppins:400,500,600,700" rel="stylesheet"> 
     <link rel="stylesheet" href="{{ url_for('static', filename='timeline.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='autocomplete.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='chatbox.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <title>Gesetzessuche</title>
 </head>
 <body>
-    <h1 style="text-align:center">Suche nach Bundesgesetzen</h1>
-    <h6 style="text-align:center">Gesetze erfasst ab Beginn der 21. Wahlperiode (26. Oktober 2021)</h6>
+    <h1>Suche nach Bundesgesetzen</h1>
+    <h6>Gesetze erfasst ab Beginn der 21. Wahlperiode (26. Oktober 2021)</h6>
     <div class="autocomplete-container">
-        <form id="lawForm" method="GET" onsubmit="return handleFormSubmit(event)">
-            <input type="text" id="autocomplete" name="user_input" placeholder="Search laws..." autocomplete="off" oninput="fetchSuggestions()" onkeydown="handleKeydown(event)">
-            <input type="hidden" id="id" name="id">
-            <div id="suggestions" class="autocomplete-suggestions"></div>
-        </form>
+        <input type="text" id="law_search_term" placeholder="Suche nach Gesetzen..." autocomplete="off" >
+        <div id="suggestions" class="autocomplete-suggestions"></div>
     </div>
 
-    <script src="{{ url_for('static', filename='autoComplete.js') }}"> </script>
     <hr>
-    {% block content %}{% endblock %}
+    <div id="content">{% block content %}{% endblock %}</div>
+    <script src="{{ url_for('static', filename='autoComplete.js') }}"> </script>
 
-<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js"></script>
 </body>
 </html>

@@ -66,7 +66,7 @@ def index():
 @app.route("/submit/<law_titel>", methods=["GET"])
 def submit(law_titel):
 
-    law_id = request.args.get("id")
+    law_id = request.args.get("law_id")
     if not law_id or not (law := get_law_by_id(law_id)):
         return render_template("error.html")
     return parse_law(law)
@@ -467,7 +467,7 @@ def parse_law(law, display=True, use_session=True):
                 .filter(Vorgangsposition.id == infos[i].get("id"))
                 .one_or_none()) and position.summary:
                 sources = "<strong>Quellen:</strong> " + ", ".join(f'<a href="{article.url}">{article.publisher}</a>' for article in position.summary.articles)
-                text = f'{position.summary.summary}\n\n{sources}'
+                # text = f'{position.summary.summary}\n\n{sources}'
 
                 if i + 1 < len(infos):
                     fstring = "%d. %B %Y" if infos[i]["datetime"].year != infos[i + 1]["datetime"].year else ("%d. %B" if infos[i]["datetime"].month != infos[i + 1]["datetime"].month else "%d.")
@@ -479,7 +479,8 @@ def parse_law(law, display=True, use_session=True):
                     "datum": date,
                     "next_date": (infos[i + 1]["datum"] if i + 1 < len(infos) else "Gegenwart"),
                     "vorgangsposition": "Nachrichtenartikel",
-                    "text": text,
+                    "text": position.summary.summary,
+                    "link": sources,
                 }
                 infos.insert(i + 1, news_info)
             i += 1
@@ -721,7 +722,7 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             doc_list_message += f"Herausgeber: {doc['Herausgeber']}<br>"
             doc_list_message += f"Vorgangsposition: {doc['Titel']}<br>"
 
-        yield f"data: {json.dumps({'stage': 'documents', 'chunk': doc_list_message})}\n\n"
+        yield f"data: {json.dumps({'stage': 'status', 'chunk': doc_list_message})}\n\n"
 
         word_count = sum(len(doc["Der Inhalt des Dokuments lautet:"].split()) for doc in dokumente_list)
 

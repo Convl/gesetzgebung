@@ -1,109 +1,66 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="experience pt-100 pb-100" id="experience">
-		<div class="container">
-			<div class="row">
-				<div class="col-xl-12 mx-auto text-center">
-					<div class="section-title">
-						<h4>{{ titel }}</h4>
-                        <button class="btn btn-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#metadataCollapse" aria-expanded="false" aria-controls="metadataCollapse">
-                            Basisinformationen anzeigen
-                        </button>
-                        <div class="collapse" id="metadataCollapse">
-                            <div class="card card-body mb-3">
-                                <p><strong>Beratungsstand: </strong>{{ beratungsstand | safe }}</p>
-                                <p>
-                                    <strong>Zustimmungsbeduerftigkeit: </strong>
-                                    {% for z in zustimmungsbeduerftigkeit %}
-                                        <br> 
-                                        {{ z | safe}} 
-                                    {% endfor %}
-                                </p>
-                                <p><strong>Abstract: </strong>{{ abstract | safe}}</p>
-                            </div>
-                        </div>
-                        <script>
-                            document.getElementById('metadataCollapse').addEventListener('show.bs.collapse', function () {
-                                const button = document.querySelector('[data-bs-target="#metadataCollapse"]');
-                                button.textContent = 'Basisinformationen verbergen';
-                            });
-                            document.getElementById('metadataCollapse').addEventListener('hide.bs.collapse', function () {
-                                const button = document.querySelector('[data-bs-target="#metadataCollapse"]');
-                                button.textContent = 'Basisinformationen anzeigen';
-                            });
-                        </script>
-					</div>
-				</div>
-			</div>
-			<div class="row">
-               <div class="col-xl-12">
-                  <ul class="timeline-list">
-                     {% for info in infos %}
-                        {% if info.has_happened %}
-                           <li>
-                              <div class="timeline_content">
-                                 <span>{{ info.datum }}</span>
-                                 <h4>{{ info.vorgangsposition }}</h4>
-                                 <div class="inner-list">
-                                    {{ info.text | replace('\n', '<br>') | safe }}
-                                 </div>
-                                 <p>{{ info.link | safe }}</p>
-                              </div>
-                           </li>
-                        {% elif info.vorgangsposition == "Nachrichtenartikel" %}
-                           <li>
-                              <div class="future_timeline_content">
-                                 <span>{{ info.datum }} - {{ info.next_date }}</span>
-                                 <h4>In den Medien</h4>
-                                 <div class="inner-list">
-                                    {{ info.text | replace('\n', '<br>') | safe }}
-                                 </div>
-                                 <p>{{ info.link | safe }}</p>
-                              </div>
-                           </li>
-                        {% else %}
-                           <li>
-                              <div class="future_timeline_content">
-                                 <span> In der Zukunft </span>
-                                 <h4>{{ info.vorgangsposition }}</h4>
-                                 <div class="inner-list">
-                                    {{ info.text | replace('\n', '<br>') | safe }}
-                                 </div>
-                                 <p>{{ info.link | safe }}</p>
-                              </div>
-                           </li>
-                        {% endif %}
-                     {% endfor %}
-                  </ul>
-               </div>
-            </div>
-		</div>
-	  </section>
+<!-- ------------------------- Basisinfos section -------------------------- -->
+<div class="basis-infos">
+    <h2 class="basis-infos__heading">{{ titel }}</h2>
+    <button type="button" class="basis-infos__button">Basisinformationen anzeigen</button>
+    <div class="basis-infos__collapsible">
+        <p class="basis-infos__info"><strong>Beratungsstand: </strong>{{ beratungsstand | safe }}</p>
+        <p class="basis-infos__info">
+            <strong>Zustimmungsbeduerftigkeit:</strong>
+            {% for z in zustimmungsbeduerftigkeit %}
+                <br> 
+                {{ z | safe}} 
+            {% endfor %}
+        </p>
+        <p class="basis-infos__info"><strong>Abstract: </strong>{{ abstract | safe}}</p>
+    </div>
+</div>
 
-<!-- Chatbox Section -->
-<section class="chat-section py-4">
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card chat-card">
-                    <div class="card-header chat-header">
-                        <h5 class="mb-0">Stellen Sie Fragen zum Gesetz</h5>
-                    </div>
-                    <div class="card-body">
-                        <div id="chat-messages" class="chat-messages mb-3" style="height: 300px; overflow-y: auto;">
-                            <!-- Messages will be inserted here -->
-                        </div>
-                        <form id="chat-form" class="chat-form">
-                            <div class="input-group">
-                                <input type="text" id="chat-input" class="form-control" placeholder="Stellen Sie eine Frage zum Gesetz...">
-                                <button type="submit" class="btn chat-btn">Senden</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+<!-- -------------------------- Timeline section --------------------------- -->
+<ul class="timeline">
+    {% for info in infos %}
+    {% if info.has_happened %}
+        <li class="timeline__node">
+            <div class="timeline__content">
+                <span class="timeline__date">{{ info.datum }}</span>
+                <h4 class="timeline__heading">{{ info.vorgangsposition }}</h4>
+                {{ info.text | replace('\n', '<br>') | safe }}
+                <p>{{ info.link | safe }}</p>
             </div>
-        </div>
+        </li>
+    {% elif info.vorgangsposition == "Nachrichtenartikel" %}
+        <li class="timeline__node">
+            <div class="timeline__content timeline__news">
+                <span class="timeline__date">{{ info.datum }} - {{ info.next_date }}</span>
+                <h4 class="timeline__heading">In den Medien</h4>
+                {{ info.text | replace('\n', '<br>') | safe }}
+                <p>{{ info.link | safe }}</p>
+            </div>
+        </li>
+    {% else %}
+        <li class="timeline__node">
+            <div class="timeline__content timeline__future">
+                <span class="timeline__date"> In der Zukunft </span>
+                <h4 class="timeline__heading">{{ info.vorgangsposition }}</h4>
+                {{ info.text | replace('\n', '<br>') | safe }}
+                <p>{{ info.link | safe }}</p>
+            </div>
+        </li>
+    {% endif %}
+    {% endfor %}
+</ul>
+
+<!-- --------------------------- Chatbox Section --------------------------- -->
+<section class="chat">
+    <h5 class="chat__header">Stellen Sie Fragen zum Gesetz</h5>
+    <div class="chat__elements">
+        <div class="chat__messages"><!-- Messages will go here --></div>
+        <form class="chat__form">
+            <input type="text" class="chat__input" placeholder="Stellen Sie eine Frage zum Gesetz...">
+            <button type="submit" class="chat__submit">Senden</button>
+        </form>
     </div>
 </section>
 
@@ -111,112 +68,4 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script> <!-- markdown parser -->
 <script src="{{ url_for('static', filename='chatbox.js') }}"> </script>
 
-<style>
-.chat-card {
-    border: 1px solid #777777;
-    border-radius: 0.25rem;
-}
-
-.chat-header {
-    background-color: #ff3636;
-    color: white;
-    border-bottom: 1px solid #777777;
-}
-
-.chat-messages {
-    border: 1px solid #777777;
-    border-radius: 0.25rem;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    background-color: #f8f9fa;
-}
-
-.message {
-    margin-bottom: 1rem;
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-}
-
-.user-message {
-    background-color: #e9ecef;
-    margin-left: 20%;
-    border-left: 3px solid #ff3636;
-}
-
-.assistant-message {
-    background-color: #f8f9fa;
-    margin-right: 20%;
-    border-left: 3px solid #333333;
-    color: #333333;
-}
-
-/* Markdown styling for assistant messages */
-.assistant-message a {
-    color: #0d6efd;
-    text-decoration: none;
-}
-
-.assistant-message a:hover {
-    text-decoration: underline;
-}
-
-.assistant-message code {
-    background-color: #f0f0f0;
-    padding: 2px 4px;
-    border-radius: 4px;
-    font-family: monospace;
-}
-
-.assistant-message pre {
-    background-color: #f0f0f0;
-    padding: 1rem;
-    border-radius: 4px;
-    overflow-x: auto;
-}
-
-.assistant-message ul, .assistant-message ol {
-    padding-left: 1.5rem;
-}
-
-.assistant-message h1, .assistant-message h2, .assistant-message h3, 
-.assistant-message h4, .assistant-message h5, .assistant-message h6 {
-    margin-top: 0.5rem;
-    margin-bottom: 0.5rem;
-}
-
-.chat-form {
-    margin-top: 1rem;
-}
-
-.chat-btn {
-    background-color: #ff3636;
-    color: white;
-    border: none;
-}
-
-.chat-btn:hover {
-    background-color: #e62e2e;
-    color: white;
-}
-
-.form-control:focus {
-    border-color: #ff3636;
-    box-shadow: 0 0 0 0.25rem rgba(255, 54, 54, 0.25);
-}
-
-.error-message {
-    background-color: #ffeded;
-    border-left: 3px solid #ff3636;
-}
-
-.status-message {
-    background-color: #f0f0f0;
-    border-left: 3px solid #666666;
-}
-
-.answer-message {
-    background-color: #f8f9fa;
-    border-left: 3px solid #007bff;
-}
-</style>
 {% endblock %}

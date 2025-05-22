@@ -1,0 +1,148 @@
+/* --------------------------------- Chatbox -------------------------------- */
+
+
+.chat {
+    width: 75%;
+    margin: 40px auto;
+    border: 1px solid #777777;
+    border-radius: 5px;
+}
+
+.chat__header {
+    background-color: #ff3636;
+    color: white;
+    border-bottom: 1px solid #777777;
+    font-size: 20px;
+    text-align: left;
+    padding: 8px 16px;
+    margin-top: 0;
+}
+
+.chat__elements {
+    margin: 16px;
+}
+
+.chat__messages {
+    border: 1px solid #777777;
+    border-radius: 5px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    height: 300px;
+    overflow-y: auto;
+}
+
+.chat__form {
+    display: flex;
+
+    input {
+        flex: 9;
+    }
+
+    button {
+        flex: 1;
+    }
+}
+
+.chat__input {
+    font-size: 16px;
+    padding: 8px 12px;
+    border: 1px solid #777777;
+    border-radius: 5px;
+    border-right: none;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.chat__submit {
+    background-color: #ff3636;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+    font-size: 16px;
+    color: white;
+    border: none;
+}
+
+/* --------------------------- Chat message types --------------------------- */
+
+.message {
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    overflow-wrap: break-word;
+}
+
+.message__user {
+    background-color: #f2f2f2;
+    margin-left: 20%;
+    border-left: 4px solid #ff3636;
+}
+
+.message__assistant {
+    background-color: #e9e9e9;
+    margin-right: 20%;
+    border-left: 4px solid #333333;
+}
+
+.message__status {
+    border-left: 4px solid #777777;
+}
+
+.message__error {
+    position: relative;
+    padding-left: 40px; 
+}
+
+.message__error::before {
+    content: "!";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #ff3636;
+    font-size: 18px;
+    font-weight: 600;
+    border: 2px solid #ff3636;
+    border-radius: 50%;
+}
+
+.message__assistant a {
+    color: #ff3636;
+    text-decoration: none;
+}
+
+.message__assistant a:hover {
+    text-decoration: underline;
+}
+
+.message__assistant pre {
+    background-color: #f0f0f0;
+    padding: 1rem;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+    .chat {
+        width: 100%;
+    }
+
+    .chat__elements {
+        margin: 6px;
+    }
+
+    .chat__messages {
+        padding: 6px;
+    }
+
+    .message__user {
+        margin-left: 0;
+    }
+
+    .message__assistant {
+        margin-right: 0;
+    }
+}

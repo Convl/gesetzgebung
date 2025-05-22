@@ -1,77 +1,114 @@
-function fetchSuggestions() {
-    const query = document.getElementById('autocomplete').value;
+"use strict";
+
+const searchField = document.querySelector("#law_search_term");
+const autoCompleteSuggestions = document.querySelector(".autocomplete-suggestions");
+
+const FETCH_DELAY = 300;
+let lastFetchTime = 0;
+let currentItem = null;
+
+searchField.addEventListener("keydown", e => handleKeyNavigation(e));
+searchField.addEventListener("input", () => {
+    const now = Date.now();
+    if(now - lastFetchTime > FETCH_DELAY) {
+        lastFetchTime = now;
+        fetchSuggestions();
+    }
+});
+
+document.addEventListener("click", (e) => {
+    if(!autoCompleteSuggestions.contains(e.target) && e.target != searchField) {
+        cleanUp();
+    }
+});
+
+
+function handleKeyNavigation (e) {
+    let suggestions = autoCompleteSuggestions.children;
+    let highlightSuggestion = (i) => {
+        for(let i = 0; i < suggestions.length; i++) {
+            if(i === currentItem) {
+                suggestions[i].classList.add("focussed");
+                suggestions[i].scrollIntoView({ block: 'nearest' });
+            }
+            else {
+                suggestions[i].classList.remove("focussed");
+            }
+        }
+    }
+
+    switch(e.key) {
+        case 'Escape':
+            cleanUp();
+            break;
+
+        case 'ArrowDown':
+            currentItem === null ? currentItem = 0 : currentItem = Math.min(currentItem + 1, suggestions.length - 1);
+            highlightSuggestion(currentItem);
+            break;
+                
+        case 'ArrowUp':
+            if(currentItem !== null && currentItem !== 0) {
+                currentItem--;
+                highlightSuggestion(currentItem)
+            }
+            break;
+
+        case 'Enter':
+            e.preventDefault();
+            if(currentItem !== null && currentItem < suggestions.length) {
+                suggestions[currentItem].dispatchEvent(new Event("click"));
+            }
+    }
+}
+
+async function fetchSuggestions() {
+    currentItem = null;
+
+    if(!searchField.value) {
+        autoCompleteSuggestions.style.display = "none";
+        return;
+    }
+
+    let searchResults;
+    try {
+        const response = await fetch(`/autocomplete?q=${encodeURIComponent(searchField.value)}`);
+        if(!response.ok) {
+            throw new Error(`Http Error: ${response.status}`);
+        }
+        searchResults = await response.json();
+    }
+    catch(error) {
+        console.error('Error fetching suggestions:', error);
+        autoCompleteSuggestions.innerHTML='';
+        const showError = document.createElement("div");
+        showError.classList.add("suggestion-item");
+        showError.textContent = "Error retrieving laws from the database";
+        autoCompleteSuggestions.appendChild(showError);
+        return;
+    }
     
-    if (query.length > 0) {
-        fetch(`/autocomplete?q=${encodeURIComponent(query)}`)
-            .then(response => response.json())
-            .then(data => {
-                showSuggestions(data);
-            })
-            .catch(error => console.error('Error fetching suggestions:', error));
-    } else {
-        document.getElementById('suggestions').innerHTML = '';
-        document.getElementById('suggestions').classList.remove('active');  // Hide suggestions if no input
+    autoCompleteSuggestions.innerHTML = '';
+    autoCompleteSuggestions.style.display = "block";
+    for(let searchResult of searchResults) {
+        const suggestion = document.createElement("div");
+        suggestion.classList.add("suggestion-item");
+        suggestion.setAttribute("tabindex", "0");
+        suggestion.textContent = searchResult["titel"];
+        suggestion.addEventListener("click", () => handleSubmit(searchResult));
+        autoCompleteSuggestions.appendChild(suggestion);
     }
 }
 
-function showSuggestions(suggestions) {
-    const suggestionsContainer = document.getElementById('suggestions');
-    suggestionsContainer.innerHTML = ''; // Clear previous suggestions
-
-    if (suggestions.length > 0) {
-        suggestionsContainer.classList.add('active'); // Show suggestions dropdown
-
-        suggestions.forEach(item => {
-            const div = document.createElement('div');
-            div.classList.add('suggestion-item');
-            div.textContent = item.titel;
-            div.onclick = () => selectSuggestion(item);
-            suggestionsContainer.appendChild(div);
-        });
-    } else {
-        suggestionsContainer.classList.remove('active'); // Hide suggestions if no data
-    }
+function handleSubmit(item) {
+    cleanUp();
+    const titelSlug = encodeURIComponent(item["titel"].replace(/\s+/g, '-').toLowerCase());
+    const idSlug = encodeURIComponent(item["id"].replace(/\s+/g, '-').toLowerCase());
+    window.location.href = `/submit/${titelSlug}?law_id=${idSlug}`;
 }
 
-function selectSuggestion(suggestion) {
-    document.getElementById('suggestions').innerHTML = ''; // Hide suggestions after selection
-    document.getElementById('suggestions').classList.remove('active'); 
-    handleSubmit(suggestion.titel, suggestion.id);
-}
-
-function handleFormSubmit(event) {
-    event.preventDefault();
-
-    const titel = document.getElementById('autocomplete').value;
-    let id = document.getElementById('id').value;
-
-    if (!id) {
-        fetch(`/autocomplete?q=${encodeURIComponent(titel)}`)
-            .then(response => response.json())
-            .then(suggestions => {
-                const match = suggestions.find(item => item.titel.toLowerCase() === titel.toLowerCase());
-                id = match ? match.id : NaN;
-                handleSubmit(titel, id); // Call handleSubmit only after resolving the ID
-            })
-            .catch(error => {
-                console.error('Error fetching suggestions:', error);
-                handleSubmit(titel, NaN); 
-            });
-    } else {
-        handleSubmit(titel, id);
-    }
-}
-
-
-function handleSubmit(titel, id) {
-    const titelSlug = encodeURIComponent(titel.replace(/\s+/g, '-').toLowerCase());
-    const idSlug = id ? encodeURIComponent(id.replace(/\s+/g, '-').toLowerCase()) : "";
-
-    window.location.href = `/submit/${titelSlug}?id=${idSlug}`;
-}
-
-function handleKeydown(event) {
-    if (event.key === 'Escape') {
-        document.getElementById('suggestions').classList.remove('active');
-    }
+function cleanUp() {
+    autoCompleteSuggestions.innerHTML = '';
+    autoCompleteSuggestions.style.display = "none";
+    currentItem = null;
 }
