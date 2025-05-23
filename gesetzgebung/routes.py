@@ -734,7 +734,9 @@ Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n
                 dokumente_list.pop(i)
             else:
                 dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[i].markdown
-                dokumente_list[i]["id"] = i
+        
+        for i, doc in enumerate(dokumente_list):
+            doc["id"] = i
 
         if not dokumente_list:
             yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Es wurden keine zur Beantwortung der Frage relevanten Dokumente gefunden. Die Antwort erfolgt auf Basis allgemein verfügbarer Informationen.'})}\n\n"
