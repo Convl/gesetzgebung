@@ -8,6 +8,7 @@ from gesetzgebung.helpers import (
     create_link,
     get_structured_data_from_ai,
     get_text_data_from_ai,
+    assess_response_quality,
     pfade,
     praepositionen_akkusativ,
     praepositionen_dativ,
@@ -19,7 +20,9 @@ from gesetzgebung.helpers import (
     zweite_beratung,
     dritte_beratung,
     zweite_und_dritte_beratung,
+    zweite_beratung_und_schlussabstimmung,
     abstimmung_ueber_vermittlungsvorschlag_im_bt,
+    position_descriptors,
 )
 from gesetzgebung.logger import get_logger
 
@@ -72,7 +75,7 @@ def submit(law_titel):
     return parse_law(law)
 
 
-def parse_law(law, display=True, use_session=True):
+def parse_law(law : GesetzesVorhaben, display=True, use_session=True):
     # ------------------ Phase 0: Gather preliminary information ----------------- #
     
     nachtraege = db.session.execute(
@@ -114,6 +117,7 @@ def parse_law(law, display=True, use_session=True):
             "id": position.id,
             "datum": position.datum.strftime("%d. %B %Y"),
             "datetime": position.datum,
+            "urheber": position.urheber_titel,
             "vorgangsposition": position.vorgangsposition,
             "link": f'<a href="{position.fundstelle.mapped_pdf_url if position.fundstelle.mapped_pdf_url else position.fundstelle.pdf_url}">Originaldokument</a>',
             "ai_info": "",
@@ -558,13 +562,14 @@ def parse_law(law, display=True, use_session=True):
         if not found:
             remaining.append(station)
 
-    # Have to do this manually because 2. and 3. Beratung may or may not have been merged
-    if zweite_und_dritte_beratung not in remaining:
-        for b in [zweite_beratung, dritte_beratung]:
-            if b in remaining:
-                remaining.remove(b)
-    else:
-        remaining.remove(zweite_und_dritte_beratung)
+    # Have to do this manually because 2. and 3. Beratung may or may not have been merged. Likewise, 2. Beratung und Schlussabstimmung may replace 2. Beratung and 3. Beratung
+    for hack in [zweite_und_dritte_beratung, zweite_beratung_und_schlussabstimmung]:
+        if hack not in remaining:
+            for b in [zweite_beratung, dritte_beratung]:
+                if b in remaining:
+                    remaining.remove(b)
+        else:
+            remaining.remove(hack)
 
     for station in remaining:
         station["has_happened"] = False
@@ -644,7 +649,14 @@ def chat():
         for info in infos:
             for dokument_id in info.get("dokument_ids", []):
                 dokument = db.session.query(Dokument).filter(Dokument.id == dokument_id).one_or_none()
-                dokumente_list.append({"id": len(dokumente), "Datum": info["datum"], "Titel": info["vorgangsposition"], "Beschreibung": info["text"], "Herausgeber": "Bundestag" if dokument.herausgeber == "BT" else "Bundesrat" if dokument.herausgeber == "BR" else "Unbekannt"})
+                dokumente_list.append({
+                    "id": len(dokumente), 
+                    "Datum": info["datum"], 
+                    "Titel": info["vorgangsposition"], 
+                    "Urheber": ", ".join(urh for urh in info.get("urheber", [])) if info.get("urheber", None) else ("Bundestag" if dokument.herausgeber == "BT" else "Bundesrat" if dokument.herausgeber == "BR" else "Unbekannt"),
+                    "Beschreibung": info["text"], 
+                    "Allgemeines": position_descriptors[info["vorgangsposition"]],
+                    })
                 dokumente.append(dokument)
 
         yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Zu diesem Gesetz liegen {len(dokumente)} Dokumente vor. <br>Filtere nach für die Frage relevanten Dokumenten. Dies kann einen Augenblick dauern...'})}\n\n"
@@ -688,26 +700,33 @@ Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
 Der Nutzer wird dir seine Frage sowie eine Liste von Vorgangspositionen im Gesetzgebungsverfahren dieses Gesetzes schicken.
 Du sollst die Frage noch NICHT beantworten.
 Stattdessen sollst du dir die Liste der Stationen anschauen und dir zu jeder davon überlegen, ob ein Dokument mit detaillierten Informationen zu dieser Vorgangsposition voraussichtlich hilfreich sein wird, um die Frage zu beantworten.                
-Zu jeder Vorgangsposition ist angegeben: eine id, der Herausgeber (= die Stelle, von der das Dokument mit den detaillierten Informationen zu dieser Vorgangsposition stammt), der Titel der Vorgangsposition innerhalb des Gesetzgebungsverfahrens, eine kurze Beschreibung dessen, was in dieser Vorgangsposition passiert ist, und das Datum der Vorgangsposition.
-In deiner Antwort wirst du für jede Vorgangsposition in das Feld 'passend' entweder eine 1 (wenn du das zugehörige Dokument mit detaillierten Informationen für sinnvoll zur Beantwortung der Frage hältst) oder eine 0 (wenn du das Dokument für nicht sinnvoll hältst) eintragen.
+Zu jeder Vorgangsposition sind folgende Felder angeggeben:
+id: Eine Indexnummer zur Identifikation der Vorgangsposition.
+Datum: Das Datum, an dem diese Vorgangsposition stattgefunden hat.
+Titel: Der Titel, der beschreibt, um was für eine Vorgangsposition es sich handelt.
+Urheber: Die Stelle, von der die Initiative zu dieser Vorgangsposition ausgeht, und von der das Dokument mit den detaillierten Informationen zu dieser Vorgangsposition stammt.
+Beschreibung: Eine kurze Beschreibung dessen, was in dieser Vorgangsposition passiert ist.
+Allgemeines: Allgemeine Informationen zu dieser Art von Vorgangsposition und den Inhalten des damit verknüpften Dokuments.
+In deiner Antwort wirst du für jede Vorgangsposition in das Feld 'passend' entweder eine 1 (wenn du das zugehörige Dokument mit detaillierten Informationen für sinnvoll zur Beantwortung der Frage hältst) oder eine 0 (wenn du das zueghörige Dokument mit detaillierten Informationen für nicht sinnvoll zur Beantwortung der Frage hältst) eintragen.
 Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur haben: {json.dumps(filter_documents_schema, ensure_ascii=False, indent=4)}""",
             },
             {
                 "role": "user",
                 "content": f"""Meine Frage lautet: {user_message}\n\n
-                Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
-                {json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
+Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n 
+{json.dumps(dokumente_list, ensure_ascii=False, indent=4)}""",
             },
         ]
 
+        # quality = assess_response_quality(client=client, messages=filter_documents_messages, dokumente_list=dokumente_list, schema=filter_documents_schema, schema_propperty="positionen", schema_key="passend")
+
+        # meta-llama/llama-4-maverick and qwen/qwen3-235b-a22b were pretty much tied in assess_response_quality. Need to run tie-breaker with other questions / law
         try:
-            ai_response = get_structured_data_from_ai(client, filter_documents_messages, filter_documents_schema, "positionen")
+            ai_response = get_structured_data_from_ai(client, filter_documents_messages, filter_documents_schema, "positionen", models=["meta-llama/llama-4-maverick", "qwen/qwen3-235b-a22b"])
+            if len(dokumente_list) != len(ai_response):
+                raise Exception(f"{len(dokumente_list)} Documents were submitted, but {len(ai_response)} Documents were evaluated.")
         except Exception as e:
             yield f"data: {json.dumps({'stage': 'error', 'chunk': f'Beim Filtern der Dokumente ist ein Fehler aufgetreten: {str(e)}'})}\n\n"
-            return
-
-        if len(dokumente_list) != len(ai_response):
-            yield f"data: {json.dumps({'stage': 'error', 'chunk': 'Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.'})}\n\n"
             return
 
         for i in range(len(ai_response) - 1, -1, -1):
@@ -715,18 +734,21 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
                 dokumente_list.pop(i)
             else:
                 dokumente_list[i]["Der Inhalt des Dokuments lautet:"] = dokumente[i].markdown
+                dokumente_list[i]["id"] = i
 
-        doc_list_message = "Folgende Dokumente werden für die Beantwortung verwendet:"
-        for i, doc in enumerate(dokumente_list):
-            doc_list_message += f"\n\n**{i+1}. Dokument**<br>"
-            doc_list_message += f"Herausgeber: {doc['Herausgeber']}<br>"
-            doc_list_message += f"Vorgangsposition: {doc['Titel']}<br>"
+        if not dokumente_list:
+            yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Es wurden keine zur Beantwortung der Frage relevanten Dokumente gefunden. Die Antwort erfolgt auf Basis allgemein verfügbarer Informationen.'})}\n\n"
+        else:
+            doc_list_message = "Folgende Dokumente werden für die Beantwortung verwendet:"
+            word_count = 0
+            for i, doc in enumerate(dokumente_list):
+                doc_list_message += f"\n\n**{i+1}. Dokument**<br>"
+                doc_list_message += f"Urheber: {doc['Urheber']}<br>"
+                doc_list_message += f"Vorgangsposition: {doc['Titel']}<br>"
+                word_count += len(doc["Der Inhalt des Dokuments lautet:"].split())
 
-        yield f"data: {json.dumps({'stage': 'status', 'chunk': doc_list_message})}\n\n"
-
-        word_count = sum(len(doc["Der Inhalt des Dokuments lautet:"].split()) for doc in dokumente_list)
-
-        yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Generiere eine Antwort auf Basis dieser Dokumente. Die Dokumente umfassen insgesamt {word_count} Wörter auf {int(word_count/700)} Seiten. Dies kann einen Augenblick dauern...'})}\n\n"
+            yield f"data: {json.dumps({'stage': 'status', 'chunk': doc_list_message})}\n\n"
+            yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Generiere eine Antwort auf Basis dieser Dokumente. Die Dokumente umfassen insgesamt {word_count} Wörter auf {int(word_count/700)} Seiten. Dies kann einen Augenblick dauern...'})}\n\n"
 
         answer_question_messages = [
             {
@@ -734,7 +756,10 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
                 "content": f"""Du bist ein Experte im Beantworten von Fragen zu deutschen Gesetzen. 
 Der Nutzer hat eine Frage zu dem Gesetz mit dem amtlichen Titel {law_titel}.
 Der Nutzer wird dir seine Frage sowie eine Liste von Dokumenten schicken, die zu diesem Gesetz gehören.
-Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
+Manche dieser Dokumente sind möglicherweise Auszüge aus längeren Dokumenten; dies kann insbesondere bei Plenarprotokollen der Fall sein. 
+In dem Fall ist es möglich, dass am Anfang und / oder am Ende des Dokuments zunächst noch Text steht, der sich auf ein anderes Gesetz bezieht. 
+Falls das der Fall ist, sollst du diesen Text ignorieren, und dich ausschließlich mit dem Teil des Dokuments befassen, der sich auf das Gesetz mit dem amtlichen Titel {law_titel} bezieht.
+Nutze die angefügten Dokumente, wenn und soweit sie zur Beantwortung der Frage des Nutzers hilfreich sind.""",
             },
             {
                 "role": "user",
@@ -749,10 +774,7 @@ Nutze diese Dokumente, soweit sie zur Beantwortung der Frage des Nutzers hilfrei
             streaming_response = get_text_data_from_ai(
                 client,
                 answer_question_messages,
-                # models=["google/gemini-2.0-flash-001"],
-                # models=["meta-llama/llama-4-maverick"],
                 models=["google/gemini-2.5-pro-preview"],
-                # models=["google/gemini-2.5-pro-exp-03-25"],
                 stream=True,
                 temperature=0.2,
             )

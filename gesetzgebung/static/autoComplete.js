@@ -4,16 +4,19 @@ const searchField = document.querySelector("#law_search_term");
 const autoCompleteSuggestions = document.querySelector(".autocomplete-suggestions");
 
 const FETCH_DELAY = 300;
-let lastFetchTime = 0;
+let debounceTimer = null;
 let currentItem = null;
 
 searchField.addEventListener("keydown", e => handleKeyNavigation(e));
 searchField.addEventListener("input", () => {
-    const now = Date.now();
-    if(now - lastFetchTime > FETCH_DELAY) {
-        lastFetchTime = now;
-        fetchSuggestions();
+    if (debounceTimer) {
+        clearTimeout(debounceTimer);
     }
+    
+    debounceTimer = setTimeout(() => {
+        fetchSuggestions();
+        debounceTimer = null;
+    }, FETCH_DELAY);
 });
 
 document.addEventListener("click", (e) => {

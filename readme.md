@@ -57,7 +57,6 @@ By fetching the government’s data via their API, this project aims to provide:
 - Restructure daily_update as a separate module (which it functionally already mostly is).
 - Implement propper factory function with more convenient way of setting app-wide config.
 - Minor (= re-factoring of get_structured_data_from_ai / get_text_data_from_ai) or major (= integrating agentic framework) rewrite of the AI-associated functionality.
-- "Minor" (= re-factoring of the chat route and all HTML/CSS/JS files) or major (= integrating front-end framework) rewrite of the frontend. 
 - Ensure thread-safety throughout entire codebase.
 - Write more detailed descriptions of how the German legislative process works and what each Vorgangsposition represents to provide better context for generating answers in the chat route.
 - Retrieve the true result count for each law from google news and factor that in in the autocomplete route (users more likely to search for laws with lots of press coverage).
