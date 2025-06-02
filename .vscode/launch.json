@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/run.py",
+            "program": "${workspaceFolder}/run_update.py",
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {"PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "2"},

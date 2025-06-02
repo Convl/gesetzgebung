@@ -64,7 +64,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
 logger = get_logger("update_logger")
 
-DIP_API_KEY = "I9FKdCn.hbfefNWCY336dL6x62vfwNKpoN2RZ1gp21" # not an oversight, this API key is public
+DIP_API_KEY = "OSOegLs.PR2lwJ1dwCeje9vTj7FPOt3hvpYKtwKkhw" # not an oversight, this API key is public
 DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"
 DIP_ENDPOINT_VORGANG = "https://search.dip.bundestag.de/api/v1/vorgang/"
 DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = "https://search.dip.bundestag.de/api/v1/vorgangsposition"
@@ -521,7 +521,7 @@ def update_positionen(law : GesetzesVorhaben) -> None:
         params["cursor"] = cursor = response_data.get("cursor", None)
         response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
-def get_pdf(fundstelle: Fundstelle) -> Tuple[pypdfium2.PdfDocument, requests.Response.content]:
+def get_pdf(fundstelle: Fundstelle) -> Tuple[pypdfium2.PdfDocument, bytes]:
     """Helper function to download a pdf (used for mapping pages / converting to markdown). Returns a tuple of the pypdfium2 PdfDocument, and the raw response content"""
     try:
         with requests.get(fundstelle.pdf_url) as response:
@@ -531,9 +531,10 @@ def get_pdf(fundstelle: Fundstelle) -> Tuple[pypdfium2.PdfDocument, requests.Res
             return pdf, pdf_content
 
     except Exception as e:
-        logger.critical(f"Error occurred on Fundstelle {fundstelle.id} with url {fundstelle.pdf_url}.\n Error: {e}",
+        logger.error(f"Could not download pdf. Error occurred on Fundstelle {fundstelle.id} with url {fundstelle.pdf_url}.\n Error: {e}",
                         subject="Error downloading pdf document from Fundstelle",
         )
+        return None, None
 
 @log_indent
 def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
@@ -553,26 +554,36 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     fundstelle.pdf_url = new_fundstelle.get("pdf_url", None)
     fundstelle.urheber = new_fundstelle.get("urheber", []).copy()
     fundstelle.anfangsseite = new_fundstelle.get("anfangsseite", None)
+    fundstelle.anfangsseite = int(fundstelle.anfangsseite) if type(fundstelle.anfangsseite) == str and fundstelle.anfangsseite.isdigit() else None
     fundstelle.endseite = new_fundstelle.get("endseite", None)
+    fundstelle.endseite = int(fundstelle.endseite) if type(fundstelle.endseite) == str and fundstelle.endseite.isdigit() else None
     fundstelle.anfangsquadrant = new_fundstelle.get("anfangsquadrant", None)
     fundstelle.endquadrant = new_fundstelle.get("endquadrant", None)
+    fundstelle.position = position
+    db.session.commit()
+
 
     fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url: {fundstelle.pdf_url}"
 
-    # a pypdfium2.PdfDocument is needed for mapping of anfangsseite / endseite and update_dokument, raw pdf_content is needed for update_dokument. Initiate both here so we don't have to do it multiple times.
+    # We need to download the pdf if we need to map the anfangsseite/endseite and/or if we need to update the dokument.
+    # Specifically, a pypdfium2.PdfDocument is needed for page mapping, and the raw pdf_content is needed for update_dokument. 
+    # Initiate both here so we don't have to do it in multiple places.
     pdf, pdf_content = None, None
+    if (fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped) or not fundstelle.dokument:
+        pdf, pdf_content = get_pdf(fundstelle)
+        if pdf is None or pdf_content is None:
+            logger.warning(f"Could not download pdf for {fundstelle_infos}")
+            return
 
     # If the fundstelle has a anfangsseite/ endseite (typically the case for BT / BR Plenarprotokolle), map them
-    if fundstelle.anfangsseite and not fundstelle.anfangsseite_mapped:
-        pdf, pdf_content = get_pdf(fundstelle)
+    if fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped:
 
         if fundstelle.herausgeber == "BR":
             try:
                 offset = map_pdf_without_destinations(fundstelle, pdf)
-                anfangsseite_internal = fundstelle.anfangsseite
-                anfangsseite = int(anfangsseite_internal) - offset
-                endseite = int(fundstelle.endseite) - offset
-                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{anfangsseite_internal}", f"#page={anfangsseite}")
+                anfangsseite = fundstelle.anfangsseite - offset
+                endseite = fundstelle.endseite - offset
+                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{fundstelle.anfangsseite}", f"#page={anfangsseite}")
             except Exception as e:
                 logger.critical(
                     f"Error mapping destinations to pages for {fundstelle_infos}. Error: {e}",
@@ -583,7 +594,7 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
                 destinations = map_pdf_with_destinations(fundstelle, pdf)
                 anfangsseite = int(destinations[f"P.{fundstelle.anfangsseite}"])
                 endseite = int(destinations[f"P.{fundstelle.endseite}"])
-                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{anfangsseite_internal}", f"#page={anfangsseite}")
+                fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{fundstelle.anfangsseite}", f"#page={anfangsseite}")
             except Exception as e:
                 logger.critical(
                     f"Error mapping destinations to pages for {fundstelle_infos}. Error: {e}",
@@ -599,19 +610,15 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
         fundstelle.endseite_mapped = endseite
         logger.info(f"Mapped pages and pdf_url for {fundstelle_infos}, Herausgeber: {fundstelle.herausgeber}, anfangsseite: {fundstelle.anfangsseite}, endseite: {fundstelle.endseite}, mapped anfangsseite: {fundstelle.anfangsseite_mapped}, mapped endseite: {fundstelle.endseite_mapped}")
 
-    fundstelle.position = position
-    db.session.commit()
-
     if not fundstelle.dokument:
-        if pdf is None or pdf_content is None:
-            pdf, pdf_content = get_pdf(fundstelle)
         update_dokument(position, fundstelle, pdf, pdf_content)
 
     if pdf is not None:
         pdf.close()
 
+
 @log_indent
-def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle, pdf: pypdfium2.PdfDocument, pdf_content: requests.Response.content) -> None:
+def update_dokument(position: Vorgangsposition, fundstelle: Fundstelle, pdf: pypdfium2.PdfDocument, pdf_content: bytes) -> None:
     """Converts the pdf of a given Fundstelle to markdown and stores it as a Dokument."""
     
     fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url {fundstelle.pdf_url}"
@@ -1266,20 +1273,15 @@ def map_pdf_with_destinations(fundstelle: Fundstelle, pdf : pypdfium2.PdfDocumen
     """
 
     fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url: {fundstelle.pdf_url}"
-    if (
-        not fundstelle.anfangsseite
-        or not fundstelle.anfangsseite.isdigit()
-        or not fundstelle.endseite
-        or not fundstelle.endseite.isdigit()
-    ):
+    if fundstelle.anfangsseite is None or fundstelle.endseite is None:
         logger.critical(
             f"Error occurd on {fundstelle_infos}",
             subject="Missing anfangsseite or endseite",
         )
         return {}
     
-    anfangsseite = int(fundstelle.anfangsseite)
-    endseite = int(fundstelle.endseite)
+    anfangsseite = fundstelle.anfangsseite
+    endseite = fundstelle.endseite
     offset = endseite - anfangsseite
     if offset < 0:
         logger.critical(
@@ -1426,9 +1428,12 @@ def launch():
 
             set_update_active(True)
 
-            update_laws()
-            update_news_update_candidates()
-
+            try:
+                update_laws()
+                update_news_update_candidates()
+            except Exception as e:
+                logger.critical(f"Unknown exception: {e}", subject="Unknown exception")
+            
             set_update_active(False)
 
 if __name__ == "__main__":

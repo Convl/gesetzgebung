@@ -134,11 +134,15 @@ class CustomLogger(logging.Logger):
     def info(self, msg: str, *args, **kwargs):
         self.log(logging.INFO, msg, *args, **kwargs)
 
+    def warning(self, msg: str, *args, **kwargs):
+        self.log(logging.WARNING, msg, *args, **kwargs)
+
     def error(self, msg: str, subject: str = None, *args, **kwargs):
         self.log(logging.ERROR, msg, subject=subject, *args, **kwargs)
 
     def critical(self, msg: str, subject: str = None, *args, **kwargs):
         self.log(logging.CRITICAL, msg, subject=subject, *args, **kwargs)
+
 
     def log(self, level: int, msg: str, *args, subject: str = None, **kwargs):
         # get func_name, file_name and lineno by going two frame back in the call stack, as otherwise it will just be the function name / line number from within this class
