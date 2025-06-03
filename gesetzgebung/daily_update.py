@@ -920,9 +920,11 @@ def consider_rollback(saved_for_rollback : list[SavedNewsUpdateCandidate]) -> No
             error_message += f"Error rolling back news update candidates: {e}\nManual rollback required\n"
         finally:
             error_message += "Affected candidates:\n"
-            error_message += "\n".join(
-                (f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" for original in candidates_of_a_given_law) for candidates_of_a_given_law in saved_for_rollback
-            )
+            error_message += "\n".join([
+                f"candidate id: {original.id}, positions id: {original.positions_id}, last update: {original.last_update}, next update: {original.next_update}, update count: {original.update_count}" 
+                for candidates_of_a_given_law in saved_for_rollback
+                for original in candidates_of_a_given_law 
+            ])
             error_message += f"\nExiting daily update at {datetime.datetime.now()}"
             logger.critical(error_message, subject="Google News is unresponsive")
     else:
