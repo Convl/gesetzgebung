@@ -7,7 +7,7 @@ from gesetzgebung.models import *
 from gesetzgebung.flask_file import app
 from gesetzgebung.es_file import es, ES_LAWS_INDEX, update_law_in_es
 from gesetzgebung.routes import parse_law
-from gesetzgebung.helpers import get_structured_data_from_ai, get_text_data_from_ai
+from gesetzgebung.helpers import get_structured_data_from_ai, get_text_data_from_ai, exp_backoff, ExpBackoffException
 from gesetzgebung.logger import get_logger, LogIndent, log_indent
 from typing import List, Optional, Type, Tuple
 from dataclasses import dataclass, field
@@ -77,6 +77,8 @@ IDEAL_ARTICLE_COUNT = 5
 MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
 MINIMUM_ARTICLE_LENGTH = 3000
 MAXIMUM_ARTICLE_LENGTH = 20000
+GNEWS_ATTEMPTS = 5
+GNEWS_RETRY_DELAY = 600
 NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT = 20
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AI_ENDPOINT = "https://openrouter.ai/api/v1"
@@ -883,25 +885,11 @@ Deine Antwort muss aus reinem, unformatiertem Text bestehen und AUSSCHLIEßLICH 
 
 
 def consider_rollback(saved_for_rollback : list[SavedNewsUpdateCandidate]) -> None:
-    """Helper function to check if gnews has become unresponsive, and roll back news update candidates if so"""
-
-    global no_news_found
-
-    logger.debug(f"Checking if gnews is unresponsive, after receiving no news for {no_news_found} queries in a row")
-
-    # try to get news for a test query that should yield tons of hits
-    try:
-        test_gn = GNews(language="de", country="DE")
-        test_gn.start_date(2024, 1, 1)
-        test_gn.end_date(2025, 1, 1)
-        test_query = test_gn.get_news("Selbstbestimmungsgesetz")
-        test_result_count = len(test_query)
-    except Exception as e:
-        test_result_count = 0
-
-    # if it doesnt, try to roll back and terminate the script
-    if test_result_count < 100:
-        error_message = f"No news found for {no_news_found} queries in a row, test query only returned {test_result_count} results.\n"
+    """Checks if gnews has become unresponsive. If so, rolls back news update candidates, then tries to restore responsiveness with exponential backoff and terminates if this, too, is unsuccesful."""
+    
+    def rollback_candidates():
+        """Rolls back saved NewsUpdateCandidates if the first run of check_if_gnews_is_unresponsive fails. Passed as a callback to exp_backoff"""
+        error_message = f"Starting rollback of saved NewsUpdateCandidates because gnews was unresponsive on first test query.\n"
         try:
             for candidates_of_a_given_law in saved_for_rollback:
                 for original in candidates_of_a_given_law:
@@ -926,10 +914,33 @@ def consider_rollback(saved_for_rollback : list[SavedNewsUpdateCandidate]) -> No
                 for original in candidates_of_a_given_law 
             ])
             error_message += f"\nExiting daily update at {datetime.datetime.now()}"
-            logger.critical(error_message, subject="Google News is unresponsive")
-    else:
-        no_news_found = 0
+            logger.error(error_message, subject="Google News is unresponsive")
 
+    @exp_backoff(attempts=GNEWS_ATTEMPTS, delay=GNEWS_RETRY_DELAY, terminate_on_final_failure=True, callback_on_first_failure=rollback_candidates, pass_attempt_count=True)
+    def check_if_gnews_is_unresponsive(attempt=0):
+        """Checks to see if gnews is unresponsive with a test query that should return 100 hits (actually much more, but it is capped at 100).
+        Decorated such that candidates will be rolled back after the test query fails once, then further attempts at restoring responsiveness are made with exponential backoff"""
+        try:
+            test_gn = GNews(language="de", country="DE")
+            test_gn.start_date(2024, 1, 1)
+            test_gn.end_date(2025, 1, 1)
+            test_query = test_gn.get_news("Selbstbestimmungsgesetz")
+            test_result_count = len(test_query)
+        except Exception as e:
+            raise ExpBackoffException(f"Querying google news failed with error: {e} on attempt {attempt}.")
+        if test_result_count < 100:
+            raise ExpBackoffException(f"Google news test query only returned {test_result_count} results on attempt {attempt}.")
+        else:
+            logger.info(f"Gnews returned the expected {test_result_count} results on attempt {attempt}")
+        
+
+    logger.info(f"Checking if gnews is unresponsive, after receiving no news for {no_news_found} queries in a row")
+    check_if_gnews_is_unresponsive()
+    
+    # if execution reaches this point, gnews is responsive (again), so reset the counter
+    global no_news_found
+    no_news_found = 0
+    
 
 def generate_search_queries(client : OpenAI, law : GesetzesVorhaben) -> list[str]:
     """Generates search queries for a given law. These can be used to search for news about the law."""
