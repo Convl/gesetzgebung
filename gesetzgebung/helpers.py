@@ -1,4 +1,6 @@
 from typing import final
+
+from openai import OpenAI
 from gesetzgebung.models import *
 from gesetzgebung.logger import get_logger
 import re
@@ -214,6 +216,36 @@ pfade = {
     "Bundesregierung": pfad_bundesregierung,
     "Bundesrat": pfad_bundesrat,
 }
+
+def exp_backoff(attempts=5, base_delay=1, terminate_on_final_failure=True, callback_on_first_failure=None, pass_attempt_count=False):
+    """Decorator function for implementing exponential backoff, e.g. when querying LLMs or Google News"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = base_delay
+            for attempt in range(1, attempts + 1):
+                try:
+                    if pass_attempt_count:
+                        return func(attempt=attempt, *args, **kwargs)
+                    else:
+                        return func(*args, **kwargs)
+                except Exception as e:
+                    helpers_logger.warning(f"Exception while trying to execute function {func.__name__} with exponential backoff: {e}")
+                if attempt == 1 and callback_on_first_failure:
+                    try:
+                        callback_on_first_failure()
+                    except Exception as e:
+                        callback_name = getattr(callback_on_first_failure, '__name__', "of unknown name. Likely something that is not a function was passed as a callback.")
+                        helpers_logger.critical(f"Callback function {callback_name} raised error: {e}")
+                if attempt < attempts:
+                    delay *= 2
+                    helpers_logger.warning(f"Retrying in {delay} seconds.")
+                    time.sleep(delay)
+            helpers_logger.error(f"All {attempts} attempts at executing {func.__name__} failed. Terminating.", subject="Exponential backoff failed all retries")
+            if terminate_on_final_failure:
+                sys.exit(1)        
+        return wrapper
+    return decorator
 
 
 def parse_actors(actors, kasus, capitalize=False, iterable=False):
@@ -453,53 +485,71 @@ def report_error(subject, message, terminate=False):
         set_update_active(False)
         os._exit(1)
 
+def get_structured_data_from_ai(client : OpenAI, 
+                                messages : list[dict], 
+                                schema : dict=None, 
+                                subfield : str=None, 
+                                models : list[str]=["deepseek/deepseek-r1"], 
+                                temperature : float=0.3, 
+                                attempts : int=1, 
+                                delay : int=1
+                                ) -> list[dict]:
+    """Requests and extracts structured (json) data from an ai with optional exponential backoff.
+    
+    Args: 
+    client: OpenAI client instance
+    messages: List of message dictionaries for the conversation
+    schema: JSON schema for structured response validation
+    subfield: Extract specific field from response instead of full object
+    models: List of model names to try in order of preference
+    temperature: Sampling temperature for response generation
+    attempts: Maximum number of attempts per model on failure 
+    delay: Base delay in seconds for exponential backoff
 
-def get_structured_data_from_ai(client, messages, schema=None, subfield=None, models=None, temperature=0.3):
-    # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
-    models = models or ["deepseek/deepseek-r1"]
-    delay = 1
-
-
-    for retry in range(13):
-        # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate
+    Returns:
+        Parsed JSON response from the AI model
+    """
+    def _get_structured_data_from_ai():
+        """Implementation function that gets decorated with exponential backoff."""
+        ai_response, message, content = None, None, None
+        # Openrouter models parameter is supposed to pass the query on to the next model if the first one fails, but currently only works for some types of errors, so we manually iterate instead
         for i, model in enumerate(models):
             try:
                 response = client.chat.completions.create(
                     model=model,
                     extra_body={
                         "models": models[i + 1 :],
-                        "provider": {"require_parameters": True, "sort": "throughput"},
+                        "provider": {"require_parameters": True,
+                                    "sort": "throughput",},
                         "temperature": temperature,
                     },
                     messages=messages,
-                    response_format={"type": "json_schema", "json_schema": schema},
+                    response_format={"type": "json_schema", 
+                                    "json_schema": schema,}
                 )
-                if response.choices:
+                if isinstance(response.choices, list) and len(response.choices) > 0 and (message := getattr(response.choices[0], 'message')) and (content := getattr(message, 'content')):
                     break
+                else:
+                    helpers_logger.warning(f"Error with model {model}: Invalid response {response}")
             except Exception as e:
-                print(f"Error with model {model}: {e}, messages: {messages}")
-            
+                helpers_logger.warning(f"Error with model {model}: {e}")
+
+        if content is None:
+            raise ExpBackoffException(f"Could not get a valid response from any model out of {models} with messages: {messages}.")
+
         try:
-            ai_response = response.choices[0].message.content
+            ai_response = content
+            # next two lines should not be necessary any more, included just to be on the safe side
             ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
             ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
             ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
             return ai_response
 
         except Exception as e:
-            # TODO: this may crash if ai_response never gets assigned and/or response does not have these attrs.
-            try:
-                print(f"Could not parse AI response {ai_response}\nFrom: {response.choices[0].message.content}\n\n Error: {e}. Retrying in {delay} seconds.")
-            except Exception as e2:
-                print(f"Could not parse ai response or even report it back. Error: {e2}. Prior error: {e}")
-            time.sleep(delay)
-            delay *= 2
+            raise ExpBackoffException(f"Could not parse AI response: {ai_response}\nFrom: {content}\n\n Error: {e}.")
 
-    helpers_logger.critical(
-        "Error getting structured data from AI",
-        f"Could not get structured data from AI. Time: {datetime.datetime.now()}, Messages: {messages}. Schema: {schema}. Subfield: {subfield}.",
-    )
-
+    decorated = exp_backoff(attempts=attempts, base_delay=delay, terminate_on_final_failure=False)(_get_structured_data_from_ai)
+    return decorated()
 
 def get_text_data_from_ai(client, messages, models=None, stream=False, temperature=0.5):
     # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
@@ -672,31 +722,3 @@ def assess_response_quality(client, models=None, questions=None, expected=None, 
             print(f"Model {model} has {len(models[model])} deviations in total.")
     
     return models
-
-def exp_backoff(attempts=5, delay=1, terminate_on_final_failure=True, callback_on_first_failure=None, pass_attempt_count=False):
-    """Decorator function for implementing exponential backoff, e.g. when querying LLMs or Google News"""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            for attempt in range(1, attempts + 1):
-                try:
-                    if pass_attempt_count:
-                        return func(attempt=attempt, *args, **kwargs)
-                    else:
-                        return func(*args, **kwargs)
-                except Exception as e:
-                    helpers_logger.warning(f"Exception while trying to execute function {func.__name__} with exponential backoff: {e}")
-                if attempt == 1 and callback_on_first_failure:
-                    try:
-                        callback_on_first_failure()
-                    except Exception as e:
-                        callback_name = getattr(callback_on_first_failure, '__name__', "of unknown name. Likely something that is not a function was passed as a callback.")
-                        helpers_logger.critical(f"Callback function {callback_name} raised error: {e}")
-                if attempt < attempts:
-                    helpers_logger.warning(f"Failed to execute function {func.__name__}, retrying in {delay ** attempt} seconds.")
-                    time.sleep(delay ** attempt)
-            helpers_logger.error(f"All {attempts} attempts at executing {func.__name__} failed. Terminating.", subject="Exponential backoff failed all retries")
-            if terminate_on_final_failure:
-                sys.exit(1)        
-        return wrapper
-    return decorator

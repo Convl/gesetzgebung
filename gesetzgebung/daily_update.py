@@ -78,7 +78,7 @@ MINIMUM_ARTICLES_TO_DISPLAY_SUMMARY = 3
 MINIMUM_ARTICLE_LENGTH = 3000
 MAXIMUM_ARTICLE_LENGTH = 20000
 GNEWS_ATTEMPTS = 5
-GNEWS_RETRY_DELAY = 600
+GNEWS_RETRY_DELAY = 300
 NEWS_UPDATE_CANDIDATES_ROLLBACK_COUNT = 20
 AI_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 AI_ENDPOINT = "https://openrouter.ai/api/v1"
@@ -274,8 +274,8 @@ def update_news_update_candidates() -> None:
             "ai_info": f"{completion_state} Die mit diesem Zeitraum verknüpften Nachrichtenartikel reichen somit bis zum heutigen Tag.",
         }
 
-        # There is a sublist of NewsUpdateCandidates for each law saved for rollback. If we can pop the first of these sublists, and have the items of the remaining sublists be > the number of times gnews returned 0, popping the first sublist is safe to do.
-        if sum(len(candidates_of_a_given_law) for candidates_of_a_given_law in saved_for_rollback[1:]) > no_news_found:
+        # There is a sublist of NewsUpdateCandidates for each law saved for rollback. We can safely keep popping these from the start of the queue as long as the remaining sublists contain more NewsUpdateCandidates than the number of times gnews returned 0. This will pop all sublists if no_news_found == 0, as sum() of an empty generator also == 0
+        while saved_for_rollback and sum(len(candidates_of_a_given_law) for candidates_of_a_given_law in saved_for_rollback[1:]) >= no_news_found:
             saved_for_rollback.pop(0)
 
         # New NewsUpdateCandidate sublist for new law
@@ -704,6 +704,7 @@ def get_news(client : OpenAI, gn : GNews, position : Vorgangsposition, infos : l
 
     logger.debug(f"Retrieving news for law: {law.titel} from {news_info.start_event} ({start_date}) to {news_info.end_event} ({end_date})")
 
+    no_news_for_this_candidate = True
     for query_counter, query in enumerate(law.queries):
         time.sleep(1)
 
@@ -713,11 +714,11 @@ def get_news(client : OpenAI, gn : GNews, position : Vorgangsposition, infos : l
 
         # if there are no news for this query, continue with the next
         if not (gnews_response := gn.get_news(query)):
-            no_news_found += 1
             logger.debug(f"No news found for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
             continue
+        else:
+            no_news_for_this_candidate = False
 
-        no_news_found = 0
         num_found = len(gnews_response)
         logger.debug(f"found {num_found} articles for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}")
 
@@ -743,7 +744,7 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
     
         # pop all irrelevant articles from gnews_response
         try:
-            ai_response = get_structured_data_from_ai(client, evaluate_results_messages, EVALUATE_RESULTS_SCHEMA, "artikel")
+            ai_response = get_structured_data_from_ai(client, evaluate_results_messages, EVALUATE_RESULTS_SCHEMA, "artikel", ["deepseek/deepseek-r1"], 0.3, 5, 30)
 
             for i in range(len(gnews_response) - 1, -1, -1):
                 if ai_response[i]["passend"] in {0, "0"}:
@@ -813,6 +814,12 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
             saved_for_summary += 1
 
         logger.debug(f"Added {saved_for_summary} articles for summary creation. {len(gnews_response) - saved_for_summary} articles were discarded due to e.g. issues with length, failure to download, etc.")
+    
+    # if none of the queries for this candidate produced a hit, increase no_news_found counter
+    if no_news_for_this_candidate:
+        no_news_found += 1
+    else:
+        no_news_found = 0
 
     return news_info
 
@@ -916,14 +923,14 @@ def consider_rollback(saved_for_rollback : list[SavedNewsUpdateCandidate]) -> No
             error_message += f"\nExiting daily update at {datetime.datetime.now()}"
             logger.error(error_message, subject="Google News is unresponsive")
 
-    @exp_backoff(attempts=GNEWS_ATTEMPTS, delay=GNEWS_RETRY_DELAY, terminate_on_final_failure=True, callback_on_first_failure=rollback_candidates, pass_attempt_count=True)
+    @exp_backoff(attempts=GNEWS_ATTEMPTS, base_delay=GNEWS_RETRY_DELAY, terminate_on_final_failure=True, callback_on_first_failure=rollback_candidates, pass_attempt_count=True)
     def check_if_gnews_is_unresponsive(attempt=0):
         """Checks to see if gnews is unresponsive with a test query that should return 100 hits (actually much more, but it is capped at 100).
         Decorated such that candidates will be rolled back after the test query fails once, then further attempts at restoring responsiveness are made with exponential backoff"""
         try:
             test_gn = GNews(language="de", country="DE")
-            test_gn.start_date(2024, 1, 1)
-            test_gn.end_date(2025, 1, 1)
+            test_gn.start_date = (2024, 1, 1)
+            test_gn.end_date = (2025, 1, 1)
             test_query = test_gn.get_news("Selbstbestimmungsgesetz")
             test_result_count = len(test_query)
         except Exception as e:
@@ -933,12 +940,11 @@ def consider_rollback(saved_for_rollback : list[SavedNewsUpdateCandidate]) -> No
         else:
             logger.info(f"Gnews returned the expected {test_result_count} results on attempt {attempt}")
         
-
+    global no_news_found
     logger.info(f"Checking if gnews is unresponsive, after receiving no news for {no_news_found} queries in a row")
     check_if_gnews_is_unresponsive()
     
     # if execution reaches this point, gnews is responsive (again), so reset the counter
-    global no_news_found
     no_news_found = 0
     
 
@@ -970,6 +976,10 @@ Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur
             generate_search_queries_messages,
             GENERATE_QUERIES_SCHEMA,
             "suchanfragen",
+            ["deepseek/deepseek-r1"],
+            temperature=0.3,
+            attempts=5,
+            delay=30
         )
         queries = [query for query in ai_response if query]
 
