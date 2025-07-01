@@ -227,7 +227,7 @@ def update_laws() -> None:
 
             update_law_in_es(law)
 
-            logger.debug(f"Entered into database: law dip id: {law.dip_id}, law dip id type: {type(law.dip_id)}, law id: {law.id}")
+            logger.debug(f"Entered into database: law dip id: {law.dip_id}, law id: {law.id}")
 
             time.sleep(1)
 
@@ -538,6 +538,7 @@ def get_pdf(fundstelle: Fundstelle) -> Tuple[pypdfium2.PdfDocument, bytes]:
         )
         return None, None
 
+
 @log_indent
 def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     """Creates/updates the Fundstelle of a given Vorgangsposition. Also creates new fields anfangsseite_mapped, endseite_mapped and mapped_pdf_url."""
@@ -548,6 +549,9 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
         db.session.add(fundstelle)
     else:
         logger.debug(f"Fundstelle with dip id: {fundstelle.dip_id} already present in the database under internal id {fundstelle.id}, may update values though.")
+        # if new_fundstelle.get("anfangsseite") and not fundstelle.anfangsseite_mapped:
+        #     if (dokument := db.session.query(Dokument).filter(Dokument.fundstelle_id == fundstelle.id).one_or_none()):
+        #         db.session.delete(dokument)
 
     fundstelle.dip_id = new_fundstelle.get("id", None)
     fundstelle.dokumentnummer = new_fundstelle.get("dokumentnummer", None)
@@ -556,9 +560,11 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     fundstelle.pdf_url = new_fundstelle.get("pdf_url", None)
     fundstelle.urheber = new_fundstelle.get("urheber", []).copy()
     fundstelle.anfangsseite = new_fundstelle.get("anfangsseite", None)
-    fundstelle.anfangsseite = int(fundstelle.anfangsseite) if type(fundstelle.anfangsseite) == str and fundstelle.anfangsseite.isdigit() else None
+    if type(fundstelle.anfangsseite) == str and fundstelle.anfangsseite.isdigit():
+        fundstelle.anfangsseite = int(fundstelle.anfangsseite)
     fundstelle.endseite = new_fundstelle.get("endseite", None)
-    fundstelle.endseite = int(fundstelle.endseite) if type(fundstelle.endseite) == str and fundstelle.endseite.isdigit() else None
+    if type(fundstelle.endseite) == str and fundstelle.endseite.isdigit():
+        fundstelle.endseite = int(fundstelle.endseite)
     fundstelle.anfangsquadrant = new_fundstelle.get("anfangsquadrant", None)
     fundstelle.endquadrant = new_fundstelle.get("endquadrant", None)
     fundstelle.position = position
@@ -583,8 +589,8 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
         if fundstelle.herausgeber == "BR":
             try:
                 offset = map_pdf_without_destinations(fundstelle, pdf)
-                anfangsseite = fundstelle.anfangsseite - offset
-                endseite = fundstelle.endseite - offset
+                anfangsseite = int(fundstelle.anfangsseite) - offset
+                endseite = int(fundstelle.endseite) - offset
                 fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{fundstelle.anfangsseite}", f"#page={anfangsseite}")
             except Exception as e:
                 logger.critical(
@@ -1303,8 +1309,8 @@ def map_pdf_with_destinations(fundstelle: Fundstelle, pdf : pypdfium2.PdfDocumen
         )
         return {}
     
-    anfangsseite = fundstelle.anfangsseite
-    endseite = fundstelle.endseite
+    anfangsseite = int(fundstelle.anfangsseite)
+    endseite = int(fundstelle.endseite)
     offset = endseite - anfangsseite
     if offset < 0:
         logger.critical(

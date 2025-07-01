@@ -8,6 +8,7 @@ from gesetzgebung.helpers import (
     create_link,
     get_structured_data_from_ai,
     get_text_data_from_ai,
+    query_ai,
     assess_response_quality,
     pfade,
     praepositionen_akkusativ,
@@ -722,7 +723,15 @@ Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n
 
         # meta-llama/llama-4-maverick and qwen/qwen3-235b-a22b were pretty much tied in assess_response_quality. Need to run tie-breaker with other questions / law
         try:
-            ai_response = get_structured_data_from_ai(client, filter_documents_messages, filter_documents_schema, "positionen", models=["meta-llama/llama-4-maverick", "qwen/qwen3-235b-a22b"])
+            # ai_response = get_structured_data_from_ai(client, filter_documents_messages, filter_documents_schema, "positionen", models=["meta-llama/llama-4-maverick", "qwen/qwen3-235b-a22b"])
+            ai_response = query_ai(client=client, 
+                                   messages=filter_documents_messages, 
+                                   schema=filter_documents_schema, 
+                                   subfield="positionen", 
+                                   models=["meta-llama/llama-4-maverick", "qwen/qwen3-235b-a22b"],
+                                   structured=True,
+                                   stream=False,
+                                   attempts=3)
             if len(dokumente_list) != len(ai_response):
                 raise Exception(f"{len(dokumente_list)} Documents were submitted, but {len(ai_response)} Documents were evaluated.")
         except Exception as e:
@@ -773,12 +782,20 @@ Nutze die angefügten Dokumente, wenn und soweit sie zur Beantwortung der Frage 
 
         try:
             print("About to start streaming response")
-            streaming_response = get_text_data_from_ai(
-                client,
-                answer_question_messages,
+            # streaming_response = get_text_data_from_ai(
+            #     client,
+            #     answer_question_messages,
+            #     models=["google/gemini-2.5-pro-preview"],
+            #     stream=True,
+            #     temperature=0.2,
+            # )
+            streaming_response = query_ai(
+                client=client,
+                messages=answer_question_messages,
                 models=["google/gemini-2.5-pro-preview"],
                 stream=True,
                 temperature=0.2,
+                attempts=3
             )
 
             print("Got streaming response generator, starting to yield chunks")
