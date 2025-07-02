@@ -785,8 +785,7 @@ def query_ai(client : OpenAI,
 
         if content is None:
             raise ExpBackoffException(f"Could not get a valid response from any model out of {models} with messages: {messages}.")
-        if attempt == 1:
-            raise ExpBackoffException("bla")
+        
         try:
             ai_response = content
             # next two lines should not be necessary any more, included just to be on the safe side

@@ -782,21 +782,21 @@ Nutze die angefügten Dokumente, wenn und soweit sie zur Beantwortung der Frage 
 
         try:
             print("About to start streaming response")
-            # streaming_response = get_text_data_from_ai(
-            #     client,
-            #     answer_question_messages,
-            #     models=["google/gemini-2.5-pro-preview"],
-            #     stream=True,
-            #     temperature=0.2,
-            # )
-            streaming_response = query_ai(
-                client=client,
-                messages=answer_question_messages,
-                models=["google/gemini-2.5-pro-preview"],
+            streaming_response = get_text_data_from_ai(
+                client,
+                answer_question_messages,
+                models=["google/gemini-2.5-pro"],
                 stream=True,
                 temperature=0.2,
-                attempts=3
             )
+            # streaming_response = query_ai(
+            #     client=client,
+            #     messages=answer_question_messages,
+            #     models=["google/gemini-2.5-pro"],
+            #     stream=True,
+            #     temperature=0.2,
+            #     attempts=3
+            # )
 
             print("Got streaming response generator, starting to yield chunks")
             chunk_count = 0
