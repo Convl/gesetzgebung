@@ -549,6 +549,15 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
         db.session.add(fundstelle)
     else:
         logger.debug(f"Fundstelle with dip id: {fundstelle.dip_id} already present in the database under internal id {fundstelle.id}, may update values though.")
+        # TODO: check for any remaining errors with this:
+        """select v.id, v.dip_id, v.datum, v.aktualisiert, v.titel, p.vorgangsposition, p.dip_id, p.datum, p.aktualisiert, f.id, f.dip_id, f.anfangsseite, f.pdf_url, f.anfangsseite, f.endseite, f.anfangsseite_mapped, f.endseite_mapped, d.markdown from vorhaben v
+        join positionen p on p.vorgangs_id = v.id
+        join fundstellen f on f.positions_id = p.id
+        left join dokumente d on d.fundstelle_id = f.id
+        where p.dokumentart = 'Plenarprotokoll'
+        and f.anfangsseite is null
+        order by v.aktualisiert desc"""
+        # fix with:
         # if new_fundstelle.get("anfangsseite") and not fundstelle.anfangsseite_mapped:
         #     if (dokument := db.session.query(Dokument).filter(Dokument.fundstelle_id == fundstelle.id).one_or_none()):
         #         db.session.delete(dokument)
@@ -560,11 +569,7 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     fundstelle.pdf_url = new_fundstelle.get("pdf_url", None)
     fundstelle.urheber = new_fundstelle.get("urheber", []).copy()
     fundstelle.anfangsseite = new_fundstelle.get("anfangsseite", None)
-    if type(fundstelle.anfangsseite) == str and fundstelle.anfangsseite.isdigit():
-        fundstelle.anfangsseite = int(fundstelle.anfangsseite)
     fundstelle.endseite = new_fundstelle.get("endseite", None)
-    if type(fundstelle.endseite) == str and fundstelle.endseite.isdigit():
-        fundstelle.endseite = int(fundstelle.endseite)
     fundstelle.anfangsquadrant = new_fundstelle.get("anfangsquadrant", None)
     fundstelle.endquadrant = new_fundstelle.get("endquadrant", None)
     fundstelle.position = position
@@ -589,8 +594,8 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
         if fundstelle.herausgeber == "BR":
             try:
                 offset = map_pdf_without_destinations(fundstelle, pdf)
-                anfangsseite = int(fundstelle.anfangsseite) - offset
-                endseite = int(fundstelle.endseite) - offset
+                anfangsseite = fundstelle.anfangsseite - offset
+                endseite = fundstelle.endseite - offset
                 fundstelle.mapped_pdf_url = fundstelle.pdf_url.replace(f"#P.{fundstelle.anfangsseite}", f"#page={anfangsseite}")
             except Exception as e:
                 logger.critical(
@@ -1309,8 +1314,8 @@ def map_pdf_with_destinations(fundstelle: Fundstelle, pdf : pypdfium2.PdfDocumen
         )
         return {}
     
-    anfangsseite = int(fundstelle.anfangsseite)
-    endseite = int(fundstelle.endseite)
+    anfangsseite = fundstelle.anfangsseite
+    endseite = fundstelle.endseite
     offset = endseite - anfangsseite
     if offset < 0:
         logger.critical(

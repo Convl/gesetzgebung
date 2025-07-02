@@ -6,6 +6,7 @@ from gesetzgebung.database import db
 from gesetzgebung.es_file import *
 from gesetzgebung.models import *
 from sqlalchemy import text
+from flask_migrate import Migrate
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
@@ -26,10 +27,12 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {  # TODO: remove this if it causes pr
 }
 app.config["DEBUG"] = DEBUG
 
+migrate = Migrate(app, db)
 db.init_app(app)
 
 
 with app.app_context():
-    db.session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    if not DEBUG:
+        db.session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     db.create_all()
     db.session.commit()
