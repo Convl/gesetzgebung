@@ -661,10 +661,10 @@ def get_text_data_from_ai(client, messages, models=None, stream=False, temperatu
                 print(f"Exception type: {type(e)}")
                 print(f"Exception dir: {dir(e)}")
 
-                def error_generator():
+                def error_generator(e):
                     yield {"chunk": f"Error: {str(e)}", "error": True}
 
-                return error_generator()
+                return error_generator(e)
 
     helpers_logger.critical(
         "Error getting streaming data from AI",

@@ -56,7 +56,6 @@ By fetching the government’s data via their API, this project aims to provide:
 
 - Restructure daily_update as a separate module (which it functionally already mostly is).
 - Implement propper factory function with more convenient way of setting app-wide config.
-- Add database migration (alembic), change Fundstelle.anfangsseite/endseite from str to int.
 - Minor (= re-factoring of get_structured_data_from_ai / get_text_data_from_ai) or major (= integrating agentic framework) rewrite of the AI-associated functionality.
 - Ensure thread-safety throughout entire codebase.
 - Write more detailed descriptions of how the German legislative process works and what each Vorgangsposition represents to provide better context for generating answers in the chat route.

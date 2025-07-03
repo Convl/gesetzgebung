@@ -4,7 +4,7 @@ import sys
 import os
 import inspect
 import functools
-from threading import local, RLock, get_ident
+from threading import local, RLock
 from gesetzgebung.models import set_update_active
 
 ERROR_MAIL_PASSWORD = os.environ.get("ERROR_MAIL_PASSWORD")
@@ -22,8 +22,10 @@ _indentation.level = 0
 _indentation.messages = []
 _logger_lock = RLock()
 
+
 class LogIndent:
     """Context manager for indenting logs"""
+
     def __init__(self, message=None):
         if message:
             _indentation.messages = getattr(_indentation, "messages", [])
@@ -32,30 +34,38 @@ class LogIndent:
     def __enter__(self):
         _indentation.level = getattr(_indentation, "level", 0) + 1
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         _indentation.level = max(0, getattr(_indentation, "level", 0) - 1)
         if getattr(_indentation, "messages", ["dummy"]):
             _indentation.messages.pop(-1)
 
+
 def get_indent():
     """Returns the appropriate amount of whitespace for the current indentation level"""
     return " " * getattr(_indentation, "level", 0) * INDENT_BY
 
+
 def log_indent(func):
     """Decorator to apply the LogIndent context manager to a function"""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        with LogIndent(f"{' ' * (getattr(_indentation, "level", 0) + 1) * INDENT_BY}##### Entering function {func.__name__} #####"):
+        with LogIndent(
+            f"{' ' * (getattr(_indentation, "level", 0) + 1) * INDENT_BY}##### Entering function {func.__name__} #####"
+        ):
             return func(*args, **kwargs)
+
     return wrapper
+
 
 class CustomFormatter(logging.Formatter):
     """Custom Formatter that indents records by _indentation.level"""
+
     def format(self, record):
         # attach format string
         formatted = super().format(record)
-        
+
         # indent each line according to _indentation.level
         if whitespace := (get_indent()):
             lines = formatted.splitlines()
@@ -74,7 +84,7 @@ class CustomFormatter(logging.Formatter):
         formatted = "\n".join(lines)
 
         # attach message(s) up top, if any
-        if (messages := getattr(_indentation, "messages", [])):
+        if messages := getattr(_indentation, "messages", []):
             formatted = "\n".join(message for message in messages) + "\n" + formatted
             setattr(_indentation, "messages", [])
 
@@ -94,9 +104,9 @@ class CustomSmtpHandler(logging.handlers.SMTPHandler):
 
 
 class CustomLogger(logging.Logger):
-    """Custom class that will: 
-    1. Always log to console 
-    2. Also log to mail for logging.ERROR and above 
+    """Custom class that will:
+    1. Always log to console
+    2. Also log to mail for logging.ERROR and above
     3. sys.exit() for logging.CRITICAL"""
 
     def __init__(self, name: str = "daily_update", log_level: int = logging.DEBUG):
@@ -126,8 +136,6 @@ class CustomLogger(logging.Logger):
         email_handler.setFormatter(formatter)
         self.addHandler(email_handler)
 
-
-
     def debug(self, msg: str, *args, **kwargs):
         self.log(logging.DEBUG, msg, *args, **kwargs)
 
@@ -143,19 +151,18 @@ class CustomLogger(logging.Logger):
     def critical(self, msg: str, subject: str = None, *args, **kwargs):
         self.log(logging.CRITICAL, msg, subject=subject, *args, **kwargs)
 
-
     def log(self, level: int, msg: str, *args, subject: str = None, **kwargs):
         # get func_name, file_name and lineno by going two frame back in the call stack, as otherwise it will just be the function name / line number from within this class
         frame = inspect.currentframe().f_back.f_back
         func_name = frame.f_code.co_name
         lineno = frame.f_lineno
         file_name = frame.f_code.co_filename
-        
+
         kwargs["extra"] = kwargs.get("extra", {})
         kwargs["extra"]["real_funcName"] = func_name
         kwargs["extra"]["real_lineno"] = lineno
         kwargs["extra"]["real_filename"] = file_name
-        
+
         if subject:
             kwargs["extra"]["subject"] = subject
 
@@ -172,7 +179,7 @@ class CustomLogger(logging.Logger):
 
 def get_logger(name: str) -> CustomLogger:
     global logger_dict
-    
+
     with _logger_lock:
         if not logger_dict.get(name):
             logger_dict[name] = CustomLogger(name)

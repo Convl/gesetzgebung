@@ -1,4 +1,4 @@
-# GitHub Actions Workflow for running daily_update.py 
+# GitHub Actions Workflow for running daily updates via the updater module
 name: Daily Update
 on:
   schedule:
@@ -58,7 +58,7 @@ jobs:
 
       # Launch script
       - name: Run daily update
-        run: python -m gesetzgebung.daily_update
+        run: python -m gesetzgebung.updater.launch
         env:
           ES_HOST: ${{ secrets.ES_HOST }}
           ES_LAWS_INDEX: ${{ secrets.ES_LAWS_INDEX }}
