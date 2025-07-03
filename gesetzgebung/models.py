@@ -41,7 +41,8 @@ class Dokument(db.Model):
     conversion_date = db.Column(db.DateTime, nullable=True)
     vorgangsposition = db.Column(db.String(250), nullable=True)
     herausgeber = db.Column(db.String(250), nullable=True)
-    seiten = db.Column(db.Integer, nullable=True)
+    anfangsseite = db.Column(db.Integer, nullable=True)
+    endseite = db.Column(db.Integer, nullable=True)
 
     fundstelle_id = db.Column(
         db.Integer, db.ForeignKey("fundstellen.id"), nullable=False, unique=True
