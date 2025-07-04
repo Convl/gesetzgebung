@@ -1,11 +1,31 @@
-from gesetzgebung.helpers import get_structured_data_from_ai
-from gesetzgebung.models import GesetzesVorhaben
-from gesetzgebung.updater.update_news import GENERATE_QUERIES_SCHEMA, QUERIES_SCHEMA_DUMPS
-
+import json
 
 from openai import OpenAI
 
+from gesetzgebung.helpers import get_structured_data_from_ai
+from gesetzgebung.infrastructure.models import GesetzesVorhaben
 from gesetzgebung.updater.launch import logger
+
+GENERATE_QUERIES_SCHEMA = {
+    "name": "Suchanfragen_Schema",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "suchanfragen": {
+                "type": "array",
+                "description": "Die Liste der von dir generierten Suchanfragen",
+                "items": {
+                    "type": "string",
+                    "description": "Eine von dir generierte Suchanfrage",
+                },
+            }
+        },
+        "required": ["suchanfragen"],
+    },
+}
+QUERIES_SCHEMA_DUMPS = json.dumps(GENERATE_QUERIES_SCHEMA, ensure_ascii=False, indent=4)
 
 
 def extract_shorthand(titel: str) -> str:
@@ -19,7 +39,10 @@ def extract_shorthand(titel: str) -> str:
         shorthand_start += 1
 
     # (NIS-2-Umsetzungs- und Cybersicherheitsstärkungsgesetz) -> Cybersicherheitsstärkungsgesetz
-    shorthand_start = max(shorthand_start, titel.find("- und ", shorthand_start, len(titel) - 1) + len("- und "))
+    shorthand_start = max(
+        shorthand_start,
+        titel.find("- und ", shorthand_start, len(titel) - 1) + len("- und "),
+    )
 
     # (Sportfördergesetz - SpoFöG) -> Sportfördergesetz
     shorthand_end = (

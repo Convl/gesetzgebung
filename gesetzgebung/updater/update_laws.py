@@ -11,9 +11,9 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.io import DocumentStream
 from pypdfium2 import PdfDocument
 
-from gesetzgebung.es_file import update_law_in_es
-from gesetzgebung.logger import log_indent
-from gesetzgebung.models import (
+from gesetzgebung.infrastructure.es_file import update_law_in_es
+from gesetzgebung.infrastructure.logger import log_indent
+from gesetzgebung.infrastructure.models import (
     Beschlussfassung,
     Dokument,
     Fundstelle,
@@ -30,7 +30,7 @@ from gesetzgebung.models import (
     inspect,
     set_last_update,
 )
-from gesetzgebung.updater.launch import logger
+from gesetzgebung.updater.logger import logger
 from gesetzgebung.updater.pdf_mapper import (
     get_pdf,
     map_pdf_with_destinations,

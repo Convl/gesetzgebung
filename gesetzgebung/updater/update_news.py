@@ -1,11 +1,11 @@
 import datetime
 import time
 import os
-from gesetzgebung.models import *
-from gesetzgebung.parse_law import parse_law
+from gesetzgebung.infrastructure.models import *
+from gesetzgebung.logic.law_parser import parse_law
 from gesetzgebung.helpers import get_structured_data_from_ai, get_text_data_from_ai, exp_backoff, ExpBackoffException
-from gesetzgebung.logger import log_indent
-from gesetzgebung.updater.launch import logger
+from gesetzgebung.infrastructure.logger import log_indent
+from gesetzgebung.updater.logger import logger
 from gesetzgebung.updater.query_generator import generate_search_queries
 from typing import List, Optional
 from dataclasses import dataclass, field
@@ -85,27 +85,6 @@ EVALUATE_RESULTS_SCHEMA = {
     },
 }
 RESULTS_SCHEMA_DUMPS = json.dumps(EVALUATE_RESULTS_SCHEMA, ensure_ascii=False, indent=4)
-
-GENERATE_QUERIES_SCHEMA = {
-    "name": "Suchanfragen_Schema",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "suchanfragen": {
-                "type": "array",
-                "description": "Die Liste der von dir generierten Suchanfragen",
-                "items": {
-                    "type": "string",
-                    "description": "Eine von dir generierte Suchanfrage",
-                },
-            }
-        },
-        "required": ["suchanfragen"],
-    },
-}
-QUERIES_SCHEMA_DUMPS = json.dumps(GENERATE_QUERIES_SCHEMA, ensure_ascii=False, indent=4)
 
 
 def update_news_update_candidates() -> None:

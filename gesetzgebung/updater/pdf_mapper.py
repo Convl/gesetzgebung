@@ -5,7 +5,7 @@ import ctypes
 import requests
 import re
 
-from gesetzgebung.models import Fundstelle
+from gesetzgebung.infrastructure.models import Fundstelle
 from gesetzgebung.updater.launch import logger
 
 

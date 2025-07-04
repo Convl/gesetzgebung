@@ -2,24 +2,23 @@ import json
 
 from gesetzgebung.helpers import get_text_data_from_ai, position_descriptors, query_ai
 from gesetzgebung.logic.ai_client import client
-from gesetzgebung.models import Dokument, Fundstelle, db
+from gesetzgebung.infrastructure.models import Dokument, Fundstelle, db
 
 
 def chat_completion(user_message, infos, law_titel):
     dokument_ids = [id for info in infos for id in info.get("dokument_ids", [])]
-    dokumente_mit_fundstellen = (
-        db.session.query(Dokument, Fundstelle)
-        .join(Fundstelle, Dokument.fundstelle_id == Fundstelle.id)
+    dokument_data = (
+        db.session.query(Dokument)
         .filter(Dokument.id.in_(dokument_ids))
         .all()
     )
-    dokumente_mit_fundstellen = {
-        dok.id: (dok, fundstelle) for dok, fundstelle in dokumente_mit_fundstellen
+    dokument_data = {
+        dok.id: dok for dok in dokument_data
     }
     dokumente = []
     for info in infos:
         for dokument_id in info.get("dokument_ids", []):
-            dokument, fundstelle = dokumente_mit_fundstellen[dokument_id]
+            dokument = dokument_data[dokument_id]
             dokumente.append(
                 {
                     "id": len(dokumente) + 1,
@@ -38,8 +37,8 @@ def chat_completion(user_message, infos, law_titel):
                     ),
                     "Beschreibung": info["text"],
                     "Allgemeines": position_descriptors[info["vorgangsposition"]],
-                    "Der Inhalt des Dokuments lautet": dokument.markdown,
-                    "Länge": (fundstelle.endseite - fundstelle.anfangsseite) + 1,
+                    "Inhalt": dokument.markdown,
+                    "Länge": (dokument.endseite - dokument.anfangsseite) + 1,
                 }
             )
 
@@ -49,7 +48,7 @@ def chat_completion(user_message, infos, law_titel):
         {
             k: v
             for k, v in dokument.items()
-            if k not in {"Der Inhalt des Dokuments lautet", "Länge"}
+            if k not in {"Inhalt", "Länge"}
         }
         for dokument in dokumente
     ]
@@ -149,7 +148,7 @@ Hier ist die Liste der Dokumente, die zu diesem Gesetz gehören:\n\n
             doc_list_message += f"\n\n**{i + 1}. Dokument**<br>"
             doc_list_message += f"Urheber: {doc['Urheber']}<br>"
             doc_list_message += f"Vorgangsposition: {doc['Titel']}<br>"
-            word_count += len(doc["Der Inhalt des Dokuments lautet:"].split())
+            word_count += len(doc["Inhalt"].split())
             page_count += doc["Länge"]
 
         yield f"data: {json.dumps({'stage': 'status', 'chunk': doc_list_message})}\n\n"

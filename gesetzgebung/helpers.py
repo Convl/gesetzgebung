@@ -1,8 +1,8 @@
 from typing import final
 
 from openai import OpenAI
-from gesetzgebung.models import *
-from gesetzgebung.logger import get_logger
+from gesetzgebung.infrastructure.models import *
+from gesetzgebung.infrastructure.logger import get_logger
 import re
 import time
 import os

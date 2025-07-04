@@ -1,9 +1,12 @@
-from gesetzgebung.flask_file import app
-from gesetzgebung.logger import get_logger
-from gesetzgebung.models import datetime, is_update_active, set_update_active
+from gesetzgebung.infrastructure.flask_file import app
+from gesetzgebung.updater.logger import logger
+from gesetzgebung.infrastructure.models import (
+    datetime,
+    is_update_active,
+    set_update_active,
+)
 from gesetzgebung.updater.update_news import update_news_update_candidates
 from gesetzgebung.updater.update_laws import update_laws
-
 
 import datetime
 import os
@@ -23,9 +26,6 @@ from dotenv import load_dotenv
 # supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
 # supabase: Client = create_client(supabase_url, supabase_key)
 # embeddings = OpenAIEmbeddings()
-
-
-logger = get_logger("update_logger")
 
 
 def launch():

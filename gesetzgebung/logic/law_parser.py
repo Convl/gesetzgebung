@@ -16,7 +16,7 @@ from gesetzgebung.helpers import (
     zweite_beratung_und_schlussabstimmung,
     zweite_und_dritte_beratung,
 )
-from gesetzgebung.models import (
+from gesetzgebung.infrastructure.models import (
     Beschlussfassung,
     BeschlussfassungDisplay,
     Dokument,
