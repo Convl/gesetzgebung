@@ -2,12 +2,26 @@ import copy
 import datetime
 
 from flask import render_template, session
+from sqlalchemy import or_
 
+from gesetzgebung.infrastructure.config import db
+from gesetzgebung.infrastructure.models import (
+    Beschlussfassung,
+    BeschlussfassungDisplay,
+    Dokument,
+    Fundstelle,
+    GesetzesVorhaben,
+    Vorgangsposition,
+)
 from gesetzgebung.logic.law_parser_helpers import (
     abstimmung_ueber_va_vorschlag_im_br,
     abstimmung_ueber_vermittlungsvorschlag_im_bt,
+    create_link,
     dritte_beratung,
-    erster_durchgang_br,
+    merge_beschluesse,
+    parse_actors,
+    parse_beschluesse,
+    pfade,
     praepositionen_akkusativ,
     praepositionen_genitiv,
     praepositionen_nominativ,
@@ -16,24 +30,6 @@ from gesetzgebung.logic.law_parser_helpers import (
     zweite_beratung,
     zweite_beratung_und_schlussabstimmung,
     zweite_und_dritte_beratung,
-)
-from gesetzgebung.infrastructure.models import (
-    Beschlussfassung,
-    BeschlussfassungDisplay,
-    Dokument,
-    Fundstelle,
-    GesetzesVorhaben,
-    Vorgangsposition,
-    db,
-    or_,
-)
-from gesetzgebung.logic.law_parser_helpers import (
-    create_link,
-    merge_beschluesse,
-    parse_actors,
-    parse_beschluesse,
-    pfad_bundestag,
-    pfade,
 )
 
 
@@ -659,6 +655,3 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
         zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit,
         infos=infos,
     )
-
-
-pfad_bundesregierung = [erster_durchgang_br] + pfad_bundestag

@@ -7,30 +7,12 @@ from flask import (
     stream_with_context,
 )
 
-from gesetzgebung.infrastructure.flask_file import app
+from gesetzgebung.infrastructure.config import app
 from gesetzgebung.infrastructure.logger import get_logger
+from gesetzgebung.infrastructure.models import get_law_by_id
 from gesetzgebung.logic.chat_service import chat_completion
 from gesetzgebung.logic.law_parser import parse_law
 from gesetzgebung.logic.law_search import search_laws
-from gesetzgebung.infrastructure.models import get_law_by_id
-
-### Everything related to RAG
-# from langchain_docling import DoclingLoader
-# from langchain_docling.loader import ExportType
-# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
-# from docling.chunking import HybridChunker
-# from docling.document_converter import DocumentConverter, PdfFormatOption
-# from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-# from docling.datamodel.pipeline_options import PdfPipelineOptions
-# from docling.datamodel.base_models import InputFormat
-# from langchain_openai.embeddings import OpenAIEmbeddings
-# from langchain_community.vectorstores import SupabaseVectorStore
-# from supabase.client import Client, create_client
-# supabase_url = os.environ.get("SUPABASE_URL")
-# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-# supabase: Client = create_client(supabase_url, supabase_key)
-# embeddings = OpenAIEmbeddings()
-
 
 logger = get_logger(__name__)
 

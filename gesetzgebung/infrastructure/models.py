@@ -1,7 +1,7 @@
 import datetime
 from typing import ClassVar, List
 
-from gesetzgebung.infrastructure.database import db
+from gesetzgebung.infrastructure.config import db
 
 
 class AppMetadata(db.Model):
@@ -19,9 +19,7 @@ class Beschlussfassung(db.Model):
     abstimm_ergebnis_bemerkung = db.Column(db.String(250), nullable=True)
     seite = db.Column(db.String(100), nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship(
-        "Vorgangsposition", back_populates="beschluesse", lazy=False
-    )
+    position = db.relationship("Vorgangsposition", back_populates="beschluesse", lazy=False)
 
 
 class BeschlussfassungDisplay:  # not an actual database class, used for modifications before display
@@ -44,9 +42,7 @@ class Dokument(db.Model):
     anfangsseite = db.Column(db.Integer, nullable=True)
     endseite = db.Column(db.Integer, nullable=True)
 
-    fundstelle_id = db.Column(
-        db.Integer, db.ForeignKey("fundstellen.id"), nullable=False, unique=True
-    )
+    fundstelle_id = db.Column(db.Integer, db.ForeignKey("fundstellen.id"), nullable=False, unique=True)
     fundstelle = db.relationship(
         "Fundstelle",
         back_populates="dokument",
@@ -81,9 +77,7 @@ class Fundstelle(db.Model):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    position = db.relationship(
-        "Vorgangsposition", back_populates="fundstelle", lazy=False
-    )
+    position = db.relationship("Vorgangsposition", back_populates="fundstelle", lazy=False)
 
 
 class Ueberweisung(db.Model):
@@ -94,9 +88,7 @@ class Ueberweisung(db.Model):
     ausschuss_kuerzel = db.Column(db.String(250), nullable=True)
     federfuehrung = db.Column(db.Boolean, nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship(
-        "Vorgangsposition", back_populates="ueberweisungen", lazy=False
-    )
+    position = db.relationship("Vorgangsposition", back_populates="ueberweisungen", lazy=False)
 
 
 class NewsArticle(db.Model):
@@ -137,9 +129,7 @@ class NewsUpdateCandidate(db.Model):
     next_update = db.Column(db.Date, nullable=True)
     update_count = db.Column(db.Integer, nullable=True, default=0)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship(
-        "Vorgangsposition", back_populates="update_candidate", lazy=False
-    )
+    position = db.relationship("Vorgangsposition", back_populates="update_candidate", lazy=False)
 
 
 class SavedNewsUpdateCandidate:  # not an actual database class, used to roll back changes in case of gnews error
@@ -203,9 +193,7 @@ class Vorgangsposition(db.Model):
     )
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    gesetz = db.relationship(
-        "GesetzesVorhaben", back_populates="vorgangspositionen", lazy=False
-    )
+    gesetz = db.relationship("GesetzesVorhaben", back_populates="vorgangspositionen", lazy=False)
 
 
 class Verkuendung(db.Model):
@@ -219,9 +207,7 @@ class Verkuendung(db.Model):
     fundstelle = db.Column(db.String(250), nullable=True)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    vorhaben = db.relationship(
-        "GesetzesVorhaben", back_populates="verkuendung", lazy=False
-    )
+    vorhaben = db.relationship("GesetzesVorhaben", back_populates="verkuendung", lazy=False)
 
 
 class Inkrafttreten(db.Model):
@@ -232,9 +218,7 @@ class Inkrafttreten(db.Model):
     erlaeuterung = db.Column(db.Text)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    vorhaben = db.relationship(
-        "GesetzesVorhaben", back_populates="inkrafttreten", lazy=False
-    )
+    vorhaben = db.relationship("GesetzesVorhaben", back_populates="inkrafttreten", lazy=False)
 
 
 class GesetzesVorhaben(db.Model):
@@ -248,9 +232,7 @@ class GesetzesVorhaben(db.Model):
     )  # TODO: change to a string, change daily_update and routes accordingly
     sachgebiet = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
     wahlperiode = db.Column(db.SmallInteger, nullable=True)
-    zustimmungsbeduerftigkeit = db.Column(
-        db.ARRAY(db.String(250)), nullable=True, default=[]
-    )
+    zustimmungsbeduerftigkeit = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
     initiative = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
     aktualisiert = db.Column(db.DateTime, nullable=True)
     inkrafttreten = db.Column(db.ARRAY(db.Date), nullable=True)
@@ -275,9 +257,7 @@ class GesetzesVorhaben(db.Model):
         cascade="all, delete-orphan",
     )
     queries = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
-    queries_last_updated = db.Column(
-        db.Date, nullable=True, default=datetime.date(1900, 1, 1)
-    )
+    queries_last_updated = db.Column(db.Date, nullable=True, default=datetime.date(1900, 1, 1))
     query_update_counter = db.Column(db.Integer, nullable=True, default=0)
 
     def __init__(self, **kwargs):
@@ -297,38 +277,24 @@ def get_law_by_id(id) -> GesetzesVorhaben:
 
 def get_law_by_dip_id(id) -> GesetzesVorhaben:
     id = int(id)
-    return (
-        db.session.query(GesetzesVorhaben)
-        .filter(GesetzesVorhaben.dip_id == id)
-        .one_or_none()
-    )
+    return db.session.query(GesetzesVorhaben).filter(GesetzesVorhaben.dip_id == id).one_or_none()
 
 
 def get_position_by_dip_id(id) -> Vorgangsposition:
     id = int(id)
-    return (
-        db.session.query(Vorgangsposition).filter(Vorgangsposition.dip_id == id).first()
-    )
+    return db.session.query(Vorgangsposition).filter(Vorgangsposition.dip_id == id).first()
 
 
 def get_last_update():
     return (
         last_update.value
-        if (
-            last_update := db.session.query(AppMetadata)
-            .filter_by(key="last_update")
-            .one_or_none()
-        )
+        if (last_update := db.session.query(AppMetadata).filter_by(key="last_update").one_or_none())
         else None
     )
 
 
 def set_last_update(update):
-    if (
-        last_update := db.session.query(AppMetadata)
-        .filter_by(key="last_update")
-        .one_or_none()
-    ):
+    if last_update := db.session.query(AppMetadata).filter_by(key="last_update").one_or_none():
         last_update.value = update
     else:
         last_update = AppMetadata(key="last_update", value=update)
@@ -337,11 +303,7 @@ def set_last_update(update):
 
 
 def is_update_active():
-    if (
-        update_status := db.session.query(AppMetadata)
-        .filter_by(key="update_active")
-        .one_or_none()
-    ):
+    if update_status := db.session.query(AppMetadata).filter_by(key="update_active").one_or_none():
         return update_status.value == "True"
     else:
         return False
@@ -349,11 +311,7 @@ def is_update_active():
 
 def set_update_active(status):
     status = "True" if status else "False"
-    if (
-        update_status := db.session.query(AppMetadata)
-        .filter_by(key="update_active")
-        .one_or_none()
-    ):
+    if update_status := db.session.query(AppMetadata).filter_by(key="update_active").one_or_none():
         update_status.value = status
     else:
         update_status = AppMetadata(key="update_active", value=status)

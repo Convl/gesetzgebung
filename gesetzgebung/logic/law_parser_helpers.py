@@ -1,17 +1,17 @@
 import re
+from typing import List
 from urllib.parse import quote
 
+from sqlalchemy import func
+
+from gesetzgebung.infrastructure.config import db
 from gesetzgebung.infrastructure.models import (
     Beschlussfassung,
     BeschlussfassungDisplay,
     Fundstelle,
     GesetzesVorhaben,
-    List,
     Vorgangsposition,
-    db,
-    func,
 )
-from gesetzgebung.logic.law_parser import pfad_bundesregierung
 
 # Where multiple options exist for vorgangsposition, list the most normal one first, as that is the one that will be displayed if this event lies in the future (has_happened=False)
 gesetzentwurf_bt = {
@@ -75,7 +75,7 @@ abstimmung_ueber_va_vorschlag_im_br = {
 }
 ueberstimmung_des_br_bei_einspruchsgesetz = {
     "text": "Der Bundestag muss den vom Bundesrat erhobenen Einspruch noch überstimmen."
-}  
+}
 
 # TODO: pfad bundestag anders bei bes. Eilbedürftigkeit?
 basispfad = [
@@ -88,8 +88,9 @@ basispfad = [
     entscheidender_durchgang_br,
 ]
 
-pfad_bundesrat = [gesetzesantrag_br, br_einbringungsbeschluss] + basispfad
 pfad_bundestag = basispfad  # + [gesetzentwurf_br]?
+pfad_bundesrat = [gesetzesantrag_br, br_einbringungsbeschluss] + basispfad
+pfad_bundesregierung = [erster_durchgang_br] + pfad_bundestag
 
 pfade = {
     "Bundestag": pfad_bundestag,
@@ -177,6 +178,7 @@ zuordnungen = {
     "BR": "Bundesrat",
     "BT": "Bundestag",
 }
+
 
 def parse_actors(actors, kasus, capitalize=False, iterable=False):
     """Parses a list of actors into a string, applying prepositions according to the rules of German grammar as per the kasus provided,
@@ -412,5 +414,3 @@ def create_link(position):
                 f'<a href="/submit/{encoded_titel}?id={results[0].id}">{dokumentnummer}</a>',
             )
     return text
-
-

@@ -2,7 +2,7 @@ import functools
 import sys
 import time
 
-from gesetzgebung.logic.ai_helpers import helpers_logger
+from gesetzgebung.logic.webapp_logger import webapp_logger
 
 
 def exp_backoff(
@@ -21,7 +21,7 @@ def exp_backoff(
                     else:
                         return func(*args, **kwargs)
                 except Exception as e:
-                    helpers_logger.warning(
+                    webapp_logger.warning(
                         f"Exception while trying to execute function {func.__name__} with exponential backoff: {e}"
                     )
                 if attempt == 1 and callback_on_first_failure:
@@ -33,12 +33,12 @@ def exp_backoff(
                             "__name__",
                             "of unknown name. Likely something that is not a function was passed as a callback.",
                         )
-                        helpers_logger.critical(f"Callback function {callback_name} raised error: {e}")
+                        webapp_logger.critical(f"Callback function {callback_name} raised error: {e}")
                 if attempt < attempts:
                     delay *= 2
-                    helpers_logger.warning(f"Retrying in {delay} seconds.")
+                    webapp_logger.warning(f"Retrying in {delay} seconds.")
                     time.sleep(delay)
-            helpers_logger.error(
+            webapp_logger.error(
                 f"All {attempts} attempts at executing {func.__name__} failed. Terminating.",
                 subject="Exponential backoff failed all retries",
             )

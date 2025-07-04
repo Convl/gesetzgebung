@@ -1,4 +1,4 @@
-from gesetzgebung.infrastructure.es_file import es, ES_LAWS_INDEX
+from gesetzgebung.infrastructure.config import ES_LAWS_INDEX, es
 
 
 def search_laws(query):

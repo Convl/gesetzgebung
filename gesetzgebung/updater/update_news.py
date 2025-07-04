@@ -11,9 +11,18 @@ from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
 from openai import OpenAI
 
-from gesetzgebung.logic.ai_helpers import get_structured_data_from_ai, get_text_data_from_ai
 from gesetzgebung.infrastructure.logger import log_indent
-from gesetzgebung.infrastructure.models import *
+from gesetzgebung.infrastructure.models import (
+    GesetzesVorhaben,
+    NewsArticle,
+    NewsSummary,
+    NewsUpdateCandidate,
+    SavedNewsUpdateCandidate,
+    Vorgangsposition,
+    db,
+    get_law_by_id,
+)
+from gesetzgebung.logic.ai_helpers import get_structured_data_from_ai, get_text_data_from_ai
 from gesetzgebung.logic.backoff import ExpBackoffException, exp_backoff
 from gesetzgebung.logic.law_parser import parse_law
 from gesetzgebung.updater.logger import logger
@@ -536,7 +545,7 @@ def consider_rollback(saved_for_rollback: list[SavedNewsUpdateCandidate]) -> Non
     def rollback_candidates():
         """Rolls back saved NewsUpdateCandidates if the first run of check_if_gnews_is_unresponsive fails. Passed as a callback to exp_backoff"""
         error_message = (
-            f"Starting rollback of saved NewsUpdateCandidates because gnews was unresponsive on first test query.\n"
+            "Starting rollback of saved NewsUpdateCandidates because gnews was unresponsive on first test query.\n"
         )
         try:
             for candidates_of_a_given_law in saved_for_rollback:
@@ -602,92 +611,3 @@ def consider_rollback(saved_for_rollback: list[SavedNewsUpdateCandidate]) -> Non
 
     # if execution reaches this point, gnews is responsive (again), so reset the counter
     no_news_found = 0
-
-
-# def handle_embeddings():
-#     law = get_law_by_id(302)
-#     if (
-#         beschluss_position := db.session.query(Vorgangsposition)
-#         .filter(
-#             Vorgangsposition.vorgangs_id == law.id,
-#             Vorgangsposition.vorgangsposition == "Beschlussempfehlung und Bericht",
-#         )
-#         .one_or_none()
-#     ):
-#         beschluss_position_id = beschluss_position.id
-#     if (
-#         beschluss := db.session.query(Fundstelle)
-#         .filter(Fundstelle.positions_id == beschluss_position_id)
-#         .one_or_none()
-#     ):
-#         beschluss_url = beschluss.pdf_url
-#     chunks = chunk_document(beschluss_url)
-
-#     for i, chunk in enumerate(chunks):
-#         chunk.page_content = chunk.page_content.replace(" ", "-").replace("  ", " ")
-#         chunk.metadata.update(
-#             {
-#                 "law_id": law.id,
-#                 "document_type": "Beschlussempfehlung",
-#                 "document_id": str(beschluss_position_id),
-#                 "chunk_number": i,
-#             }
-#         )
-#     vector_store = SupabaseVectorStore.from_documents(
-#         chunks,
-#         embeddings,
-#         client=supabase,
-#         table_name="documents",
-#         query_name="match_documents",
-#     )
-#     query = "Was sind die wichtigsten Unterschiede zwischen dem Gesetzentwurf und der Beschlussempfehlung des Ausschusses?"
-#     matched_docs = vector_store.similarity_search(query)
-#     logger.debug(matched_docs)
-#     os._exit(0)
-
-
-# def chunk_document(url):
-#     tokenizer = OpenAITokenizerWrapper()
-#     MAX_TOKENS = 8191
-
-#     pipeline_options = PdfPipelineOptions()
-#     pipeline_options.do_ocr = True
-#     pipeline_options.do_table_structure = True
-#     pipeline_options.table_structure_options.do_cell_matching = True
-
-#     doc_converter = DocumentConverter(
-#         format_options={
-#             InputFormat.PDF: PdfFormatOption(
-#                 pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
-#             )
-#         }
-#     )
-
-#     loader = DoclingLoader(
-#         file_path=url,
-#         export_type=ExportType.DOC_CHUNKS,
-#         converter=doc_converter,
-#         chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS),
-#     )
-#     splits = loader.load()
-
-#     conv_result = doc_converter.convert(url)
-#     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".md", encoding='utf-8') as temp_file:
-#         markdown_content = conv_result.document.export_to_markdown()
-#         temp_file.write(markdown_content)
-#         temp_file_path = temp_file.name  # Save the path
-
-#     # File is now closed, we can use the loader
-#     try:
-#         loader = DoclingLoader(
-#             file_path=temp_file_path,
-#             export_type=ExportType.DOC_CHUNKS,
-#             converter=doc_converter,
-#             chunker=HybridChunker(tokenizer=tokenizer, max_tokens=MAX_TOKENS)
-#         )
-#         splits = loader.load()
-#     finally:
-#         # Clean up the temporary file
-#         os.unlink(temp_file_path)
-
-#     return splits

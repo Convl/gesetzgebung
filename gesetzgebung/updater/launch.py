@@ -3,7 +3,7 @@ import os
 
 from dotenv import load_dotenv
 
-from gesetzgebung.infrastructure.flask_file import app
+from gesetzgebung.infrastructure.config import app
 from gesetzgebung.infrastructure.models import (
     is_update_active,
     set_update_active,
@@ -11,21 +11,6 @@ from gesetzgebung.infrastructure.models import (
 from gesetzgebung.updater.logger import logger
 from gesetzgebung.updater.update_laws import update_laws
 from gesetzgebung.updater.update_news import update_news_update_candidates
-
-### Below imports were experimental, not currently needed
-# from langchain_docling import DoclingLoader
-# from langchain_docling.loader import ExportType
-# from langchain_openai.embeddings import OpenAIEmbeddings
-# from langchain_community.vectorstores import SupabaseVectorStore
-# from supabase.client import Client, create_client
-# from docling.chunking import HybridChunker
-# from gesetzgebung.tokenizer_wrapper import OpenAITokenizerWrapper
-# import tempfile
-# from pathlib import Path
-# supabase_url = os.environ.get("SUPABASE_URL")
-# supabase_key = os.environ.get("SUPABASE_SERVICE_KEY")
-# supabase: Client = create_client(supabase_url, supabase_key)
-# embeddings = OpenAIEmbeddings()
 
 
 def launch():

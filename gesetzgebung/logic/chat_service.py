@@ -1,8 +1,8 @@
 import json
 
-from gesetzgebung.logic.ai_helpers import get_text_data_from_ai, query_ai
 from gesetzgebung.infrastructure.models import Dokument, db
 from gesetzgebung.logic.ai_client import client
+from gesetzgebung.logic.ai_helpers import get_text_data_from_ai, query_ai
 
 position_descriptors = {
     "Gesetzentwurf im Bundestag": "Bei dieser Position handelt es sich um die Vorlage des ursprünglichen Gesetzentwurfs im Bundestag. Das hiermit verknüpfte Dokument ist der ursprüngliche Gesetzentwurf. Diese Position steht relativ am Anfang des Gesetzgebungsverfahrens. Falls der Urheber des Gesetzentwurfs die Bundesregierung ist, muss der Gesetzentwurf außerdem auch in den Bundesrat eingebracht werden.",

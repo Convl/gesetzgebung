@@ -1,3 +1,5 @@
+# this module is a complete mess and probably most in need of a re-write / replacement
+
 import datetime
 import json
 import re
@@ -5,10 +7,8 @@ import time
 
 from openai import OpenAI
 
-from gesetzgebung.infrastructure.logger import get_logger
 from gesetzgebung.logic.backoff import ExpBackoffException, exp_backoff
-
-helpers_logger = get_logger(__name__)
+from gesetzgebung.logic.webapp_logger import webapp_logger
 
 
 def get_structured_data_from_ai(
@@ -67,9 +67,9 @@ def get_structured_data_from_ai(
                 ):
                     break
                 else:
-                    helpers_logger.warning(f"Error with model {model}: Invalid response {response}")
+                    webapp_logger.warning(f"Error with model {model}: Invalid response {response}")
             except Exception as e:
-                helpers_logger.warning(f"Error with model {model}: {e}")
+                webapp_logger.warning(f"Error with model {model}: {e}")
 
         if content is None:
             raise ExpBackoffException(
@@ -127,7 +127,7 @@ def get_text_data_from_ai(client, messages, models=None, stream=False, temperatu
                 time.sleep(delay)
                 delay *= 2
 
-        helpers_logger.critical(
+        webapp_logger.critical(
             "Error getting structured data from AI",
             f"Could not get text data from AI. Time: {datetime.datetime.now()}, Messages: {messages}.",
         )
@@ -210,7 +210,7 @@ def get_text_data_from_ai(client, messages, models=None, stream=False, temperatu
 
                 return error_generator(e)
 
-    helpers_logger.critical(
+    webapp_logger.critical(
         "Error getting streaming data from AI",
         f"All models failed for streaming request. Time: {datetime.datetime.now()}, Messages: {messages}.",
     )
@@ -289,10 +289,10 @@ def query_ai(
                 ):
                     break
                 else:
-                    helpers_logger.warning(f"Error with model {model}: Invalid response {response}")
+                    webapp_logger.warning(f"Error with model {model}: Invalid response {response}")
                     continue
             except Exception as e:
-                helpers_logger.warning(f"Error with model {model}: {e}")
+                webapp_logger.warning(f"Error with model {model}: {e}")
 
         if content is None:
             raise ExpBackoffException(
@@ -335,7 +335,7 @@ def query_ai(
                         raise ExpBackoffException("blub")
                 return
             except Exception as e:
-                helpers_logger.warning(f"Error with model {model}: {e}")
+                webapp_logger.warning(f"Error with model {model}: {e}")
 
         # yield {"chunk": f"All models have failed", "error": True}
         raise ExpBackoffException(
@@ -361,7 +361,7 @@ def generate_chunks(response):
                 error_code = getattr(error_details, "code", "unknown")
                 formatted_error = f"Received error event in stream: Error: {error_message}, code: {error_code}"
 
-                helpers_logger.warning(formatted_error)
+                webapp_logger.warning(formatted_error)
                 yield {
                     "chunk": formatted_error,
                     "error": "provider_error",
@@ -379,12 +379,12 @@ def generate_chunks(response):
 
                 # Check for finish reason if available
                 if hasattr(chunk.choices[0], "finish_reason") and chunk.choices[0].finish_reason:
-                    helpers_logger.info(f"Stream finished with reason: {chunk.choices[0].finish_reason}")
+                    webapp_logger.info(f"Stream finished with reason: {chunk.choices[0].finish_reason}")
                     break
 
                 current_time = time.time()
                 if current_time - last_activity > idle_timeout:
-                    helpers_logger.error(
+                    webapp_logger.error(
                         f"Stream idle for {idle_timeout} seconds, terminating", subject="Stream timed out"
                     )
                     if full_text:
