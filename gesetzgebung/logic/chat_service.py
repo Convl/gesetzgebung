@@ -1,20 +1,45 @@
 import json
 
-from gesetzgebung.helpers import get_text_data_from_ai, position_descriptors, query_ai
+from gesetzgebung.logic.ai_helpers import get_text_data_from_ai, query_ai
+from gesetzgebung.infrastructure.models import Dokument, db
 from gesetzgebung.logic.ai_client import client
-from gesetzgebung.infrastructure.models import Dokument, Fundstelle, db
+
+position_descriptors = {
+    "Gesetzentwurf im Bundestag": "Bei dieser Position handelt es sich um die Vorlage des ursprünglichen Gesetzentwurfs im Bundestag. Das hiermit verknüpfte Dokument ist der ursprüngliche Gesetzentwurf. Diese Position steht relativ am Anfang des Gesetzgebungsverfahrens. Falls der Urheber des Gesetzentwurfs die Bundesregierung ist, muss der Gesetzentwurf außerdem auch in den Bundesrat eingebracht werden.",
+    "Gesetzentwurf im Bundesrat": "Bei dieser Position handelt es sich um die Vorlage des ursprünglichen Gesetzentwurfs im Bundesrat. Das hiermit verknüpfte Dokument ist der ursprüngliche Gesetzentwurf. Diese Position ist nur erforderlich, wenn der Gesetzentwurf von der Bundesregierung stammt.",
+    "1. Beratung": "Bei dieser Position handelt es sich um die erste Beratung des Gesetzentwurfs im Bundestag. Das hiermit verknüpfte Dokument ist das Plenarprotokoll der 1. Beratung des Gesetzentwurfs im Bundestag. Häufig enthält es Redebeiträge der Parlamentarier. Am Ende der 1. Beratung wird der Gesetzentwurf an die zuständigen Bundestagsausschüsse überwiesen.",
+    "Zurückverweisung an die Ausschüsse in 2./3. Beratung": "Bei dieser Position handelt es sich um die 2. und 3. Beratung des Gesetzentwurfs im Bundestag, wobei der Gesetzentwurf weder angenommen noch abgelehnt, sondern zur erneuten Bearbeitung an die zuständigen Ausschüsse zurückverwiesen wird. Das mit dieser Position verknüpfte Dokument ist das Plernarprotokoll der betreffenden Beratung im Bundestag. Häufig enthält es Redebeiträge der Parlamentarier.",
+    "Beschlussempfehlung und Bericht": "Bei dieser Position handelt es sich um den Bericht und die Beschlussempfehlung der zuständigen Bundestagsausschüsse. Das hiermit verknüpfte Dokument enthält die Beschlussempfehlung und den Bericht. Das Feld Urheber gibt den federführenden Ausschuss an. Der Bericht enthält die Einschätzung der zuständigen Ausschüsse zu dem Gesetzentwurf. Die Beschlussempfehlung kann beispielsweise lauten, den Gesetzentwurf abzulehnen, ihn mit Änderungen anzunehmen, oder ihn unverändert anzunehmen.",
+    "Beschlussempfehlung": "Bei dieser Position handelt es sich um die Beschlussempfehlung der zuständigen Bundestagsausschüsse. Das hiermit verknüpfte Dokument enthält die Beschlussempfehlung. Das Feld Urheber gibt den federführenden Ausschuss an. Die Beschlussempfehlung kann beispielsweise lauten, den Gesetzentwurf abzulehnen, ihn mit Änderungen anzunehmen, oder ihn unverändert anzunehmen.",
+    "Bericht": "Bei dieser Position handelt es sich um den Bericht der zuständigen Bundestagsausschüsse. Das hiermit verknüpfte Dokument enthält den Bericht. Das Feld Urheber gibt den federführenden Ausschuss an. Der Bericht enthält die Einschätzung der zuständigen Ausschüsse zu dem Gesetzentwurf.",
+    "2. Beratung": "Bei dieser Position handelt es sich um die 2. Beratung des Gesetzentwurfs im Bundestag. Das hiermit verknüpfte Dokument enthält das Plenarprotokoll der Beratung. Häufig enthält es Redebeiträge der Parlamentarier zu dem Gesetzentwurf.",
+    "2. Beratung und Schlussabstimmung": "Bei dieser Position handelt es sich um die 2. Beratung des Gesetzentwurfs, und die Schlussabstimmung über den Gesetzentwurf, im Bundestag. Der Gesetzentwurf wird hier vom Bundestag typischerweise entweder angenommen oder abgelehnt. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundestags. Es enthält möglicherweise Redebeiträge der Parlamentarier zu dem Gesetzentwurf.",
+    "3. Beratung": "Bei dieser Position handelt es sich um die 3. und typischerweise letzte Beratung des Gesetzentwurfs im Bundestag. Der Gesetzentwurf wird hier vom Bundestag typischerweise entweder angenommen oder abgelehnt. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundestags. Es enthält möglicherweise Redebeiträge der Parlamentarier zu dem Gesetzentwurf.",
+    "2. und 3. Beratung": "Bei dieser Position handelt es sich um die 2. und 3. Beratung des Gesetzentwurfs im Bundestag. Der Gesetzentwurf wird hier vom Bundestag typischerweise entweder angenommen oder abgelehnt. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundestags. Es enthält möglicherweise Redebeiträge der Parlamentarier zu dem Gesetzentwurf.",
+    "1. Durchgang": "Bei dieser Position handelt es sich um die erste Beratung des Gesetzentwurfs im Bundesrat. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundesrats. Es enthält möglicherweise Redebeiträge der Bundesratsmitglieder zu dem Gesetzentwurf.",
+    "Abstimmung im Bundesrat": "Bei dieser Position handelt es sich um die Beratung und Abstimmung zum Gesetzentwurf im Bundesrat. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundesrats. Es enthält möglicherweise Redebeiträge der Bundesratsmitglieder zu dem Gesetzentwurf.",
+    "Gesetzesantrag": "Bei dieser Position handelt es sich um einen von einem oder mehreren Bundesländern im Bundesrat eingebrachten Antrag, der darauf zielt, dass der Bundesrat seinerseits einen Gesetzentwurf ins Gesetzgebungsverfahren einbringen soll. Das mit dieser Position verknüpfte Dokument ist der Entwurf des Gesetzes, das die Länder über den Bundesrat ins Gesetzgebungsverfahren einbringen möchten.",
+    "Plenarantrag": "Bei dieser Position handelt es sich um einen von einem oder mehreren Bundesländern im Bundesrat eingebrachten Antrag, der im Zusammenhang mit einem Gesetzgebungsverfahren steht. Das mit dieser Position verknüpfte Dokument enthält den Inhalt des Antrags.",
+    "BR-Sitzung": "Bei dieser Position handelt es sich um eine Bundesratssitzung zu dem Gesetzgebungsverfahren. Je nach Stadium des Gesetzgebungsverfahrens kann der Bundesrat hier beispielsweise beschließen, das Gesetz den zuständigen Bundesratsausschüssen zuzuweisen, die Einbringung in den Bundestag anzunehmen oder abzulehnen, dem Vorschlag des Vermittlungsausschusses zuzustimmen oder diesen abzulehnen. Das mit dieser Position verknüpfte Dokument ist das betreffende Plenarprotokoll des Bundesrats. Es enthält möglicherweise Redebeiträge der Bundesratsmitglieder zu dem Gesetzentwurf.",
+    "Berichtigung zum Gesetzesbeschluss": "Bei dieser Position handelt es sich um eine Berichtigung zum Gesetzesbeschluss. Das hiermit verknüpfte Dokument enthält ein Plenarprotokoll, aus dem sich der Inhalt der Berichtigung ergibt.",
+    "Unterrichtung über Anrufung des Vermittlungsausschusses durch die Bundesregierung": "Bei dieser Position handelt es sich um eine Anrufung des Vermittlungsausschusses durch die Bundesregierung, weil der Bundestag und der Bundesrat sich nicht über den Erlass des Gesetzes einigen können. Das hiermit verknüpfte Dokument ist kurz und eher formaler Natur, es ergibt sich daraus im Wesentlichen nur, dass die Bundesregierung den Vermittlungsausschuss anruft.",
+    "Unterrichtung über Anrufung des Vermittlungsausschusses durch den Bundesrat": "Bei dieser Position handelt es sich um eine Anrufung des Vermittlungsausschusses durch den Bundesrat, weil der Bundestag und der Bundesrat sich nicht über den Erlass des Gesetzes einigen können. Das hiermit verknüpfte Dokument ist kurz und eher formaler Natur, es ergibt sich daraus im Wesentlichen nur, dass der Bundesrat den Vermittlungsausschuss anruft.",
+    "Unterrichtung über Stellungnahme des Bundesrats und Gegenäußerung der Bundesregierung": "Bei dieser Position handelt es sich um eine Stellungnahme des Bundesrats und eine Gegenäußerung der Bundesregierung im Rahmen eines Vermittlungsverfahrens. Das hiermit verknüpfte Dokument enthält die Stellungnahme und die Gegenäußerung.",
+    "Unterrichtung über Zustimmungsversagung durch den Bundesrat": "Bei dieser Position handelt es sich um die Unterrichtung über die Verweigerung der Zustimmung des Bundesrats zum Erlass des Gesetzes. Das hiermit verknüpfte Dokument ist knapp und eher formaler Natur und enthält im Wesentlichen die Information, dass der Bundesrat sich weigert, zuzustimmen.",
+    "Vermittlungsvorschlag": "Bei dieser Position handelt es sich um einen Vermittlungsvorschlag des Vermittlungsausschusses, um Einigkeit zwischen dem Bundestag und dem Bundesrat in Hinblick auf den Erlass des Gesetzes herzustellen. Das hiermit verknüpfte Dokument enthält den Inhalt des Vermittlungsvorschlags.",
+    "Einigungsvorschlag": "Bei dieser Position handelt es sich um einen Einigungsvorschlag des Vermittlungsausschusses, um Einigkeit zwischen dem Bundestag und dem Bundesrat in Hinblick auf den Erlass des Gesetzes herzustellen. Das hiermit verknüpfte Dokument enthält den Inhalt des Einigungsvorschlags.",
+    "Abstimmung über Vermittlungsvorschlag": "Bei dieser Position handelt es sich um die Abstimmung über den Vermittlungsvorschlag des Vermittlungsausschusses. Das hiermit verknüpfte Dokument ist das Plenarprotokoll zu der Abstimmung. Es enthält möglicherweise Redebeiträge der Parlamentarier.",
+    "Protokollerklärung/Begleiterklärung zum Vermittlungsverfahren": "Bei dieser Position handelt es sich um eine Protokollerklärung (= inhaltliche Stellungnahme) von einzelnen oder mehreren Mitgliedern des Bundestags oder des Bundesrats zum laufenden Vermittlungsverfahren. Das hiermit verknüpfte Dokument enthält die Protokollerklärung.",
+    "Rücknahme der Vorlage": "Bei dieser Position handelt es sich um die Rücknahme einer Gesetzesvorlage. Das hiermit verknüpfte Dokument enthält das Plenarprotokoll, in welchem die Rücknahme erklärt wurde.",
+    "Rücknahme des Antrags": "Bei dieser Position handelt es sich um die Rücknahme eines Gesetzesantrags. Das hiermit verknüpfte Dokument ist eher knapp und formaler Natur und enthält im Wesentlichen die Information, dass der Antrag zurückgenommen wurde.",
+    "Unterrichtung": "Bei dieser Position handelt es sich um einen schriftlichen Bericht, der typischerweise von der Bundesregierung aus eigener Initiative auf Verlangen des Bundestags erstellt wird. Die Unterrichtung kann inhaltliche Stellungnahmen unterschiedlicher Art enthalten. Das hiermit verknüpfte Dokument enthält den Inhalt der Unterrichtung.",
+}
 
 
 def chat_completion(user_message, infos, law_titel):
     dokument_ids = [id for info in infos for id in info.get("dokument_ids", [])]
-    dokument_data = (
-        db.session.query(Dokument)
-        .filter(Dokument.id.in_(dokument_ids))
-        .all()
-    )
-    dokument_data = {
-        dok.id: dok for dok in dokument_data
-    }
+    dokument_data = db.session.query(Dokument).filter(Dokument.id.in_(dokument_ids)).all()
+    dokument_data = {dok.id: dok for dok in dokument_data}
     dokumente = []
     for info in infos:
         for dokument_id in info.get("dokument_ids", []):
@@ -45,12 +70,7 @@ def chat_completion(user_message, infos, law_titel):
     yield f"data: {json.dumps({'stage': 'status', 'chunk': f'Zu diesem Gesetz liegen {len(dokumente)} Dokumente vor. <br>Filtere nach für die Frage relevanten Dokumenten. Dies kann einen Augenblick dauern...'})}\n\n"
 
     dokumente_for_filtering = [
-        {
-            k: v
-            for k, v in dokument.items()
-            if k not in {"Inhalt", "Länge"}
-        }
-        for dokument in dokumente
+        {k: v for k, v in dokument.items() if k not in {"Inhalt", "Länge"}} for dokument in dokumente
     ]
     filter_documents_schema = {
         "name": "Filter_Dokumente_Schema",

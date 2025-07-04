@@ -1,16 +1,16 @@
+import datetime
+import os
+
+from dotenv import load_dotenv
+
 from gesetzgebung.infrastructure.flask_file import app
-from gesetzgebung.updater.logger import logger
 from gesetzgebung.infrastructure.models import (
-    datetime,
     is_update_active,
     set_update_active,
 )
-from gesetzgebung.updater.update_news import update_news_update_candidates
+from gesetzgebung.updater.logger import logger
 from gesetzgebung.updater.update_laws import update_laws
-
-import datetime
-import os
-from dotenv import load_dotenv
+from gesetzgebung.updater.update_news import update_news_update_candidates
 
 ### Below imports were experimental, not currently needed
 # from langchain_docling import DoclingLoader

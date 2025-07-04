@@ -1,12 +1,13 @@
-from gesetzgebung.helpers import (
+import copy
+import datetime
+
+from flask import render_template, session
+
+from gesetzgebung.logic.law_parser_helpers import (
     abstimmung_ueber_va_vorschlag_im_br,
     abstimmung_ueber_vermittlungsvorschlag_im_bt,
-    create_link,
     dritte_beratung,
-    merge_beschluesse,
-    parse_actors,
-    parse_beschluesse,
-    pfade,
+    erster_durchgang_br,
     praepositionen_akkusativ,
     praepositionen_genitiv,
     praepositionen_nominativ,
@@ -23,17 +24,17 @@ from gesetzgebung.infrastructure.models import (
     Fundstelle,
     GesetzesVorhaben,
     Vorgangsposition,
-    datetime,
     db,
     or_,
 )
-
-
-from flask import render_template, session
-
-
-import copy
-import datetime
+from gesetzgebung.logic.law_parser_helpers import (
+    create_link,
+    merge_beschluesse,
+    parse_actors,
+    parse_beschluesse,
+    pfad_bundestag,
+    pfade,
+)
 
 
 def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
@@ -89,7 +90,6 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
 
     # ---- Phase I: Parse all Vorgangspositionen (what has happened thus far) ---- #
     for position in law.vorgangspositionen:
-
         if not position.gang:
             continue
 
@@ -114,7 +114,6 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
                 info["dokument_ids"].append(nachtrag["dokument_id"])
 
         match position.vorgangsposition:
-
             case "Gesetzentwurf":
                 if position.urheber_titel:
                     text = parse_actors(
@@ -231,7 +230,7 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
                         },
                     )
 
-                    text += f" Die Beschlüsse des Bundestags werden nachfolgend gemeinsam dargestellt, sofern sie in beiden Beratungen gleich lauten, andernfalls getrennt: \n\n"
+                    text += " Die Beschlüsse des Bundestags werden nachfolgend gemeinsam dargestellt, sofern sie in beiden Beratungen gleich lauten, andernfalls getrennt: \n\n"
                     text += "".join(
                         (
                             parse_beschluesse(law, gemeinsame_beschluesse[k])
@@ -372,9 +371,7 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
                 text += f" wird folgender Antrag gestellt: \n\n<strong>{position.abstract}</strong>."
                 ai_info = text
 
-            case (
-                "BR-Sitzung"
-            ):  # kommt bei initiative von Land (typischerweise 2x) oder bei ini von BT/BRg (nach Anrufung d. Vermittlungsausschusses)
+            case "BR-Sitzung":  # kommt bei initiative von Land (typischerweise 2x) oder bei ini von BT/BRg (nach Anrufung d. Vermittlungsausschusses)
                 beschluesse = [BeschlussfassungDisplay(b) for b in position.beschluesse]
                 beschluesse = merge_beschluesse(beschluesse)
                 text = "Der Bundesrat befasst sich mit dem Gesetz und beschließt:\n\n"
@@ -564,9 +561,9 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
 
         if info.get("marks_success", None):
             if beratungsstand == "Nicht ausgefertigt wegen Zustimmungsverweigerung des Bundespräsidenten":
-                info[
-                    "text"
-                ] += "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
+                info["text"] += (
+                    "\n\n<strong>Der Bundespräsident hat sich jedoch wegen verfassungsrechtlicher Bedenken geweigert, das Gesetz auszufertigen. Es wird somit nicht in Kraft treten</strong>."
+                )
                 if display:
                     session_storage["infos"] = [inf for inf in infos if inf["vorgangsposition"] != "Nachrichtenartikel"]
                     return render_template(
@@ -582,24 +579,24 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
 
             if law.verkuendung:
                 for verkuendung in law.verkuendung:
-                    info[
-                        "text"
-                    ] += f'\n\nDas Gesetz wurde <strong>am {verkuendung.verkuendungsdatum.strftime("%d. %B %Y")} verkündet</strong>'
+                    info["text"] += (
+                        f"\n\nDas Gesetz wurde <strong>am {verkuendung.verkuendungsdatum.strftime('%d. %B %Y')} verkündet</strong>"
+                    )
                     info["text"] += (
                         f' (<a href="{verkuendung.pdf_url}">Link zur Verkündung</a>).' if verkuendung.pdf_url else "."
                     )
             else:
-                info[
-                    "text"
-                ] += "\n\nDas Gesetz <strong>muss allerdings noch verkündet werden, um in Kraft zu treten.</strong>"
+                info["text"] += (
+                    "\n\nDas Gesetz <strong>muss allerdings noch verkündet werden, um in Kraft zu treten.</strong>"
+                )
 
             if law.inkrafttreten:
                 for inkraft in law.inkrafttreten:
                     erlaeuterung = f" ({inkraft.erlaeuterung})" if inkraft.erlaeuterung else " "
                     info["text"] += (
-                        f"\n\nDas Gesetz{erlaeuterung} ist <strong>am {inkraft.datum.strftime("%d. %B %Y")} in Kraft getreten</strong>."
+                        f"\n\nDas Gesetz{erlaeuterung} ist <strong>am {inkraft.datum.strftime('%d. %B %Y')} in Kraft getreten</strong>."
                         if inkraft.datum <= datetime.datetime.now().date()
-                        else f"\n\nDas Gesetz{erlaeuterung} <strong>wird am {inkraft.datum.strftime("%d. %B %Y")} in Kraft treten</strong>."
+                        else f"\n\nDas Gesetz{erlaeuterung} <strong>wird am {inkraft.datum.strftime('%d. %B %Y')} in Kraft treten</strong>."
                     )
             else:
                 info["text"] += "\n\nZum <strong>Datum des Inkrafttretens</strong> ist noch nichts bekannt."
@@ -614,9 +611,9 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
                     if beratungsstand == "Teile des Gesetzes für nichtig erklärt"
                     else "f" + beratungsstand[1:]
                 )
-                info[
-                    "text"
-                ] += f"\n\n<strong>Das Gesetz wurde durch das Bundesverfassungsgericht jedoch {entscheidung_bverfg}.</strong>"
+                info["text"] += (
+                    f"\n\n<strong>Das Gesetz wurde durch das Bundesverfassungsgericht jedoch {entscheidung_bverfg}.</strong>"
+                )
 
     if not display:
         return infos
@@ -649,7 +646,7 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
     for station in remaining:
         station["has_happened"] = False
         # check for cases where I introduced ambiguity, currently only "Beschlussempfehlung und Bericht", may simplify later
-        if type(station["vorgangsposition"]) == list and len(station["vorgangsposition"]) > 1:
+        if isinstance(station["vorgangsposition"], list) and len(station["vorgangsposition"]) > 1:
             station["vorgangsposition"] = station["vorgangsposition"][0]
         infos.append(station)
 
@@ -662,3 +659,6 @@ def parse_law(law: GesetzesVorhaben, display=True, use_session=True):
         zustimmungsbeduerftigkeit=zustimmungsbeduerftigkeit,
         infos=infos,
     )
+
+
+pfad_bundesregierung = [erster_durchgang_br] + pfad_bundestag

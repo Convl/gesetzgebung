@@ -1,21 +1,23 @@
 import datetime
-import time
-import os
-from gesetzgebung.infrastructure.models import *
-from gesetzgebung.logic.law_parser import parse_law
-from gesetzgebung.helpers import get_structured_data_from_ai, get_text_data_from_ai, exp_backoff, ExpBackoffException
-from gesetzgebung.infrastructure.logger import log_indent
-from gesetzgebung.updater.logger import logger
-from gesetzgebung.updater.query_generator import generate_search_queries
-from typing import List, Optional
-from dataclasses import dataclass, field
-
 import json
-from openai import OpenAI
+import os
+import time
+from dataclasses import dataclass, field
+from itertools import groupby
+from typing import List, Optional
+
 import newspaper
 from gnews import GNews
 from googlenewsdecoder import gnewsdecoder
-from itertools import groupby
+from openai import OpenAI
+
+from gesetzgebung.logic.ai_helpers import get_structured_data_from_ai, get_text_data_from_ai
+from gesetzgebung.infrastructure.logger import log_indent
+from gesetzgebung.infrastructure.models import *
+from gesetzgebung.logic.backoff import ExpBackoffException, exp_backoff
+from gesetzgebung.logic.law_parser import parse_law
+from gesetzgebung.updater.logger import logger
+from gesetzgebung.updater.query_generator import generate_search_queries
 
 SUMMARY_LENGTH = 700
 IDEAL_ARTICLE_COUNT = 5
@@ -306,7 +308,7 @@ def get_news(
         # if there are no news for this query, continue with the next
         if not (gnews_response := gn.get_news(query)):
             logger.debug(
-                f"No news found for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}"
+                f"No news found for query {query_counter + 1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}"
             )
             continue
         else:
@@ -314,7 +316,7 @@ def get_news(
 
         num_found = len(gnews_response)
         logger.debug(
-            f"found {num_found} articles for query {query_counter+1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}"
+            f"found {num_found} articles for query {query_counter + 1}/{len(law.queries)}: {query}, start date: {gn.start_date}, end date: {gn.end_date}"
         )
 
         # use llm to check which articles are likely relevant based on their titles
@@ -384,7 +386,6 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
         saved_for_summary = 0
         # iterate through the relevant articles
         for article in gnews_response:
-
             # stop if we have enough articles
             if len(news_info.artikel) >= IDEAL_ARTICLE_COUNT:
                 break

@@ -2,7 +2,7 @@ import json
 
 from openai import OpenAI
 
-from gesetzgebung.helpers import get_structured_data_from_ai
+from gesetzgebung.logic.ai_helpers import get_structured_data_from_ai
 from gesetzgebung.infrastructure.models import GesetzesVorhaben
 from gesetzgebung.updater.launch import logger
 

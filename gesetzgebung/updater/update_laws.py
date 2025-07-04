@@ -44,19 +44,14 @@ pipeline_options.table_structure_options.do_cell_matching = True
 
 converter = DocumentConverter(
     format_options={
-        InputFormat.PDF: PdfFormatOption(
-            pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend
-        )
+        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options, backend=PyPdfiumDocumentBackend)
     }
 )
 
 
 @log_indent
 def update_without_dip_id(
-    table: Type[Verkuendung]
-    | Type[Inkrafttreten]
-    | Type[Ueberweisung]
-    | Type[Beschlussfassung],
+    table: Type[Verkuendung] | Type[Inkrafttreten] | Type[Ueberweisung] | Type[Beschlussfassung],
     parent_table: GesetzesVorhaben | Vorgangsposition,
     new_entries: list[dict],
 ) -> None:
@@ -67,9 +62,7 @@ def update_without_dip_id(
 
     # fetch the old values and the name of the SqlAlchemy parent-relationship attribute based on table and parent_table
     if isinstance(parent_table, GesetzesVorhaben):
-        old_entries = (
-            db.session.query(table).filter_by(vorgangs_id=parent_table.id).all()
-        )
+        old_entries = db.session.query(table).filter_by(vorgangs_id=parent_table.id).all()
         if table == Verkuendung or table == Inkrafttreten:
             parent_attr = "vorhaben"
         else:
@@ -78,9 +71,7 @@ def update_without_dip_id(
                 subject="Failure in crud_without_dip",
             )
     elif isinstance(parent_table, Vorgangsposition):
-        old_entries = (
-            db.session.query(table).filter_by(positions_id=parent_table.id).all()
-        )
+        old_entries = db.session.query(table).filter_by(positions_id=parent_table.id).all()
         if table == Ueberweisung or table == Beschlussfassung:
             parent_attr = "position"
         else:
@@ -96,18 +87,13 @@ def update_without_dip_id(
 
     # get names of attributes based on which table type we are modifying (sqlalchemy relationship names are excluded by default, own and foreign key attributes have to be excluded manually)
     mapper = inspect(table)
-    attrs = [
-        column.key
-        for column in mapper.columns
-        if column.key not in {"id", "positions_id", "vorgangs_id"}
-    ]
+    attrs = [column.key for column in mapper.columns if column.key not in {"id", "positions_id", "vorgangs_id"}]
 
     # Delete old entries which are not present in the new data
     deleted_count = 0
     for old_entry in old_entries:
         if not any(
-            all(getattr(old_entry, attr) == new_entry.get(attr, None) for attr in attrs)
-            for new_entry in new_entries
+            all(getattr(old_entry, attr) == new_entry.get(attr, None) for attr in attrs) for new_entry in new_entries
         ):
             logger.info(
                 f"Deleting {table.__name__} with internal id: {old_entry.id} from {parent_table.__class__.__name__} with internal id {parent_table.id}, because it is not present in current DIP response."
@@ -119,8 +105,7 @@ def update_without_dip_id(
     added_count = 0
     for new_entry in new_entries:
         if not any(
-            all(getattr(old_entry, attr) == new_entry.get(attr, None) for attr in attrs)
-            for old_entry in old_entries
+            all(getattr(old_entry, attr) == new_entry.get(attr, None) for attr in attrs) for old_entry in old_entries
         ):
             new_object = table()
 
@@ -142,9 +127,7 @@ DIP_API_KEY = "OSOegLs.PR2lwJ1dwCeje9vTj7FPOt3hvpYKtwKkhw"  # not an oversight, 
 
 
 headers = {"Authorization": "ApiKey " + DIP_API_KEY}
-DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = (
-    "https://search.dip.bundestag.de/api/v1/vorgangsposition"
-)
+DIP_ENDPOINT_VORGANGSPOSITIONENLISTE = "https://search.dip.bundestag.de/api/v1/vorgangsposition"
 FIRST_DATE_TO_CHECK = "2021-10-26"
 LAST_DATE_TO_CHECK = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -156,9 +139,7 @@ def law_is_too_old(law: GesetzesVorhaben) -> bool:
     """
     params = {"f.vorgang": law.dip_id}
     cursor = ""
-    response = requests.get(
-        DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-    )
+    response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
     while response.ok and cursor != response.json().get("cursor", None):
         response_data = response.json()
         for item in response_data.get("documents", []):
@@ -169,9 +150,7 @@ def law_is_too_old(law: GesetzesVorhaben) -> bool:
                 )
                 return True
         params["cursor"] = cursor = response.json().get("cursor", None)
-        response = requests.get(
-            DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-        )
+        response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
     return False
 
@@ -185,13 +164,13 @@ def update_dokument(
 ) -> None:
     """Converts the pdf of a given Fundstelle to markdown and stores it as a Dokument."""
 
-    fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url {fundstelle.pdf_url}"
+    fundstelle_infos = (
+        f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url {fundstelle.pdf_url}"
+    )
 
     # TODO: Devise some way to process longer pdfs, e.g. splitting into smaller files.
     if len(pdf) > 500:
-        logger.warning(
-            f"Skipping {fundstelle_infos} because it has more than 500 pages."
-        )
+        logger.warning(f"Skipping {fundstelle_infos} because it has more than 500 pages.")
         return
 
     # create DocumentStream from raw pdf data so we don't have to load the pdf again
@@ -218,12 +197,7 @@ def update_dokument(
             )
             return
     else:
-        markdown = (
-            converter.convert(doc_stream)
-            .document.export_to_markdown()
-            .replace(" ", "-")
-            .replace("  ", " ")
-        )
+        markdown = converter.convert(doc_stream).document.export_to_markdown().replace(" ", "-").replace("  ", " ")
 
     # have to do a test query against the db because above conversion may take so long that the connection gets dropped
     try:
@@ -249,6 +223,8 @@ def update_dokument(
     dokument.fundstelle = fundstelle
     dokument.vorgangsposition = position.vorgangsposition
     dokument.herausgeber = fundstelle.herausgeber
+    dokument.anfangsseite = fundstelle.anfangsseite_mapped if fundstelle.anfangsseite_mapped else 1
+    dokument.endseite = fundstelle.endseite_mapped if fundstelle.endseite_mapped else len(pdf)
     db.session.add(dokument)
     db.session.commit()
     logger.info(f"Added Dokument with internal id {dokument.id} for {fundstelle_infos}")
@@ -259,9 +235,7 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     """Creates/updates the Fundstelle of a given Vorgangsposition. Also creates new fields anfangsseite_mapped, endseite_mapped and mapped_pdf_url."""
 
     if (
-        fundstelle := db.session.query(Fundstelle)
-        .filter(Fundstelle.positions_id == position.id)
-        .one_or_none()
+        fundstelle := db.session.query(Fundstelle).filter(Fundstelle.positions_id == position.id).one_or_none()
     ) is None:
         logger.info(
             f"Fundstelle with dip id {new_fundstelle.get('id', None)} does not yet exist in the database. Creating new database entry."
@@ -298,16 +272,16 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     fundstelle.position = position
     db.session.commit()
 
-    fundstelle_infos = f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url: {fundstelle.pdf_url}"
+    fundstelle_infos = (
+        f"Fundstelle with internal id: {fundstelle.id}, dip id: {fundstelle.dip_id}, url: {fundstelle.pdf_url}"
+    )
 
     # We need to download the pdf if we need to map the anfangsseite/endseite and/or if we need to update the dokument.
     # Specifically, a pypdfium2.PdfDocument is needed for page mapping, and the raw pdf_content is needed for update_dokument.
     # Initiate both here so we don't have to do it in multiple places.
     pdf, pdf_content = None, None
     if (
-        fundstelle.anfangsseite
-        and fundstelle.endseite
-        and not fundstelle.anfangsseite_mapped
+        fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped
     ) or not fundstelle.dokument:
         pdf, pdf_content = get_pdf(fundstelle)
         if pdf is None or pdf_content is None:
@@ -315,11 +289,7 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
             return
 
     # If the fundstelle has a anfangsseite/ endseite (typically the case for BT / BR Plenarprotokolle), map them
-    if (
-        fundstelle.anfangsseite
-        and fundstelle.endseite
-        and not fundstelle.anfangsseite_mapped
-    ):
+    if fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped:
         if fundstelle.herausgeber == "BR":
             try:
                 offset = map_pdf_without_destinations(fundstelle, pdf)
@@ -386,16 +356,12 @@ def update_positionen(law: GesetzesVorhaben) -> None:
     # iterate through Vorgangspositionen and associated tables
     params = {"f.vorgang": law.dip_id}
     cursor = ""
-    response = requests.get(
-        DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-    )
+    response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
     while response.ok and cursor != response.json().get("cursor", None):
         response_data = response.json()
         for item in response_data.get("documents", []):
             dip_id = item.get("id", None)
-            logger.debug(
-                f"Processing Vorgangsposition: {item.get('vorgangsposition', None)} with dip id: {dip_id}"
-            )
+            logger.debug(f"Processing Vorgangsposition: {item.get('vorgangsposition', None)} with dip id: {dip_id}")
 
             if (position := get_position_by_dip_id(dip_id)) is None:
                 logger.info(
@@ -454,9 +420,7 @@ def update_positionen(law: GesetzesVorhaben) -> None:
 
         time.sleep(1)
         params["cursor"] = cursor = response_data.get("cursor", None)
-        response = requests.get(
-            DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers
-        )
+        response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
 
 DIP_ENDPOINT_VORGANGLISTE = "https://search.dip.bundestag.de/api/v1/vorgang"
@@ -488,13 +452,9 @@ def update_laws() -> None:
         response_data = response.json()
         for item in response_data.get("documents", []):
             dip_id = item.get("id", None)
-            logger.debug(
-                f"Proccesing law with dip id: {dip_id}, title: {item.get('titel', None)}"
-            )
+            logger.debug(f"Proccesing law with dip id: {dip_id}, title: {item.get('titel', None)}")
             if law := get_law_by_dip_id(dip_id):
-                logger.debug(
-                    f"A law with this dip id already exists in the database with internal id: {law.id}"
-                )
+                logger.debug(f"A law with this dip id already exists in the database with internal id: {law.id}")
             else:
                 law = GesetzesVorhaben()
                 db.session.add(law)
@@ -505,15 +465,11 @@ def update_laws() -> None:
             # if not law.aktualisiert or law.aktualisiert != item.get("aktualisiert", None):
             law.dip_id = item.get("id", None)
             law.abstract = item.get("abstract", None)
-            if not law.beratungsstand or law.beratungsstand[-1] != item.get(
-                "beratungsstand", None
-            ):
+            if not law.beratungsstand or law.beratungsstand[-1] != item.get("beratungsstand", None):
                 law.beratungsstand.append(item.get("beratungsstand", None))
             law.sachgebiet = item.get("sachgebiet", []).copy()
             law.wahlperiode = int(item.get("wahlperiode", 0))
-            law.zustimmungsbeduerftigkeit = item.get(
-                "zustimmungsbeduerftigkeit", []
-            ).copy()
+            law.zustimmungsbeduerftigkeit = item.get("zustimmungsbeduerftigkeit", []).copy()
             law.initiative = item.get("initiative", []).copy()
             law.aktualisiert = item.get("aktualisiert", None)
             law.titel = item.get("titel", None)
@@ -537,22 +493,16 @@ def update_laws() -> None:
 
             update_law_in_es(law)
 
-            logger.debug(
-                f"Entered into database: law dip id: {law.dip_id}, law id: {law.id}"
-            )
+            logger.debug(f"Entered into database: law dip id: {law.dip_id}, law id: {law.id}")
 
             time.sleep(1)
 
         params["cursor"] = cursor = response_data.get("cursor", None)
-        response = requests.get(
-            DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers
-        )
+        response = requests.get(DIP_ENDPOINT_VORGANGLISTE, params=params, headers=headers)
 
     logger.info("Finished updating laws.")
     set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
 
 
 DIP_ENDPOINT_VORGANG = "https://search.dip.bundestag.de/api/v1/vorgang/"
-DIP_ENDPOINT_VORGANGSPOSITION = (
-    "https://search.dip.bundestag.de/api/v1/vorgangsposition/"
-)
+DIP_ENDPOINT_VORGANGSPOSITION = "https://search.dip.bundestag.de/api/v1/vorgangsposition/"
