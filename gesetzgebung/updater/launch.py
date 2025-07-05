@@ -1,5 +1,5 @@
 import datetime
-import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -14,8 +14,8 @@ from gesetzgebung.updater.update_news import update_news_update_candidates
 
 
 def launch():
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    load_dotenv(os.path.join(basedir, ".env"))
+    basedir = Path(__file__).parent.parent
+    load_dotenv(basedir / ".env")
 
     with app.app_context():
         if is_update_active():

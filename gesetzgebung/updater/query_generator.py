@@ -4,7 +4,7 @@ from openai import OpenAI
 
 from gesetzgebung.logic.ai_helpers import get_structured_data_from_ai
 from gesetzgebung.infrastructure.models import GesetzesVorhaben
-from gesetzgebung.updater.launch import logger
+from gesetzgebung.updater.logger import logger
 
 GENERATE_QUERIES_SCHEMA = {
     "name": "Suchanfragen_Schema",

@@ -1,10 +1,11 @@
+import functools
+import inspect
 import logging
 import logging.handlers
-import sys
 import os
-import inspect
-import functools
-from threading import local, RLock
+import sys
+from threading import RLock, local
+
 from gesetzgebung.infrastructure.models import set_update_active
 
 ERROR_MAIL_PASSWORD = os.environ.get("ERROR_MAIL_PASSWORD")
@@ -52,7 +53,7 @@ def log_indent(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         with LogIndent(
-            f"{' ' * (getattr(_indentation, "level", 0) + 1) * INDENT_BY}##### Entering function {func.__name__} #####"
+            f"{' ' * (getattr(_indentation, 'level', 0) + 1) * INDENT_BY}##### Entering function {func.__name__} #####"
         ):
             return func(*args, **kwargs)
 
@@ -170,7 +171,6 @@ class CustomLogger(logging.Logger):
 
         # Here, we can specify individual teardown behaviour depending on where the logger is being used
         if level >= logging.CRITICAL:
-
             if self.name == "update_logger":
                 set_update_active(False)
 

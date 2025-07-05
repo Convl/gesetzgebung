@@ -1,12 +1,13 @@
-from typing import Tuple
-import pypdfium2.raw as pdfium_c
-import pypdfium2
 import ctypes
-import requests
 import re
+from typing import Tuple
+
+import pypdfium2
+import pypdfium2.raw as pdfium_c
+import requests
 
 from gesetzgebung.infrastructure.models import Fundstelle
-from gesetzgebung.updater.launch import logger
+from gesetzgebung.updater.logger import logger
 
 
 def map_pdf_without_destinations(fundstelle: Fundstelle, pdf: pypdfium2.PdfDocument) -> int:
@@ -178,7 +179,6 @@ def map_pdf_with_destinations(fundstelle: Fundstelle, pdf: pypdfium2.PdfDocument
 
     # For each destination
     for i in range(count):
-
         # First, get the required buffer size
         buflen = ctypes.c_long(0)
         dest_handle = pdfium_c.FPDF_GetNamedDest(doc_handle, i, None, ctypes.byref(buflen))
