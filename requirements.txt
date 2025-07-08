@@ -8,10 +8,10 @@ Requests==2.32.3
 SQLAlchemy==2.0.36
 gunicorn==23.0.0
 newspaper4k==0.9.3.1
-numpy<2
 lxml_html_clean==0.4.1
 openai==1.65.1
 Flask-Migrate==4.1.0
+numpy<2
 # below packages are only needed for daily_update / GitHub Actions
 #gnews==0.4.0
 #googlenewsdecoder==0.1.7

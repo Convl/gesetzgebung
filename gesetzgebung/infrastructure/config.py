@@ -2,6 +2,10 @@ import locale
 import os
 from pathlib import Path
 
+# Hack to ensure backwards compatibility with elasticsearch7.
+# Should not be needed if numpy<2 moved down in requirements or requirements locked.
+# import numpy as np
+# np.float_ = np.float64
 from dotenv import load_dotenv
 from elasticsearch7 import Elasticsearch
 from flask import Flask
