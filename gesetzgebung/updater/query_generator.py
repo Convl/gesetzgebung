@@ -90,7 +90,7 @@ Deine Antwort MUSS ausschließlich aus JSON Daten bestehen und folgende Struktur
             generate_search_queries_messages,
             GENERATE_QUERIES_SCHEMA,
             "suchanfragen",
-            ["deepseek/deepseek-r1"],
+            ["deepseek/deepseek-r1-0528"],
             temperature=0.3,
             attempts=5,
             delay=30,

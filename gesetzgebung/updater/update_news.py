@@ -358,7 +358,7 @@ Deine Antwort wird ausschließlich aus JSON Daten bestehen und folgende Struktur
                 evaluate_results_messages,
                 EVALUATE_RESULTS_SCHEMA,
                 "artikel",
-                ["deepseek/deepseek-r1"],
+                ["deepseek/deepseek-r1-0528"],
                 0.3,
                 5,
                 30,

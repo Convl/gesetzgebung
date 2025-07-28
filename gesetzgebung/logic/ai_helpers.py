@@ -16,7 +16,7 @@ def get_structured_data_from_ai(
     messages: list[dict],
     schema: dict = None,
     subfield: str = None,
-    models: list[str] = ["deepseek/deepseek-r1"],
+    models: list[str] = ["deepseek/deepseek-r1-0528"],
     temperature: float = 0.3,
     attempts: int = 1,
     delay: int = 1,
@@ -95,7 +95,7 @@ def get_structured_data_from_ai(
 
 def get_text_data_from_ai(client, messages, models=None, stream=False, temperature=0.5):
     # models = ['deepseek/deepseek-r1', 'deepseek/deepseek-chat', 'openai/gpt-4o-2024-11-20']
-    models = models or ["deepseek/deepseek-r1"]
+    models = models or ["deepseek/deepseek-r1-0528"]
     if not stream:
         delay = 1
         for retry in range(13):
@@ -231,7 +231,7 @@ def query_ai(
     messages: list[dict],
     schema: dict = None,
     subfield: str = None,
-    models: list[str] = ["deepseek/deepseek-r1"],
+    models: list[str] = ["deepseek/deepseek-r1-0528"],
     structured: bool = False,
     stream: bool = False,
     temperature: float = 0.3,
