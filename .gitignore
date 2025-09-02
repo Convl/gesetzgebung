@@ -4,6 +4,12 @@ gesetzgebung/discarded/
 database_backups/
 dokumente/
 .vscode/
+egress/
+.serena/
+CLAUDE.md
+uv.lock
+pyproject.toml
+.python-version
 
 # Custom file ending for stuff to ignore
 *.ignore

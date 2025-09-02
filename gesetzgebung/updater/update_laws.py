@@ -57,6 +57,7 @@ converter = DocumentConverter(
     }
 )
 
+
 def update_laws() -> None:
     """Function to update laws from DIP. Sits at the root of the DIP update hierarchy and should be launched first with app.app_context() if __name__ == __main__"""
 
@@ -133,6 +134,7 @@ def update_laws() -> None:
 
     logger.info("Finished updating laws.")
     set_last_update(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+
 
 @log_indent
 def update_positionen(law: GesetzesVorhaben) -> None:
@@ -221,6 +223,7 @@ def update_positionen(law: GesetzesVorhaben) -> None:
         params["cursor"] = cursor = response_data.get("cursor", None)
         response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
+
 @log_indent
 def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     """Creates/updates the Fundstelle of a given Vorgangsposition. Also creates new fields anfangsseite_mapped, endseite_mapped and mapped_pdf_url."""
@@ -271,9 +274,10 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
     # Specifically, a pypdfium2.PdfDocument is needed for page mapping, and the raw pdf_content is needed for update_dokument.
     # Initiate both here so we don't have to do it in multiple places.
     pdf, pdf_content = None, None
-    if (
-        fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped
-    ) or not fundstelle.dokument:
+    dokument_exists = db.session.query(
+        db.session.query(Dokument).filter(Dokument.fundstelle_id == fundstelle.id).exists()
+    ).scalar()
+    if (fundstelle.anfangsseite and fundstelle.endseite and not fundstelle.anfangsseite_mapped) or not dokument_exists:
         pdf, pdf_content = get_pdf(fundstelle)
         if pdf is None or pdf_content is None:
             logger.warning(f"Could not download pdf for {fundstelle_infos}")
@@ -319,11 +323,12 @@ def update_fundstelle(position: Vorgangsposition, new_fundstelle: dict) -> None:
             f"Mapped pages and pdf_url for {fundstelle_infos}, Herausgeber: {fundstelle.herausgeber}, anfangsseite: {fundstelle.anfangsseite}, endseite: {fundstelle.endseite}, mapped anfangsseite: {fundstelle.anfangsseite_mapped}, mapped endseite: {fundstelle.endseite_mapped}"
         )
 
-    if not fundstelle.dokument:
+    if not dokument_exists:
         update_dokument(position, fundstelle, pdf, pdf_content)
 
     if pdf is not None:
         pdf.close()
+
 
 @log_indent
 def update_dokument(
@@ -398,6 +403,7 @@ def update_dokument(
     db.session.add(dokument)
     db.session.commit()
     logger.info(f"Added Dokument with internal id {dokument.id} for {fundstelle_infos}")
+
 
 @log_indent
 def update_without_dip_id(
@@ -494,5 +500,3 @@ def law_is_too_old(law: GesetzesVorhaben) -> bool:
         response = requests.get(DIP_ENDPOINT_VORGANGSPOSITIONENLISTE, params=params, headers=headers)
 
     return False
-
-

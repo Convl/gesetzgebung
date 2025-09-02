@@ -19,7 +19,7 @@ class Beschlussfassung(db.Model):
     abstimm_ergebnis_bemerkung = db.Column(db.String(250), nullable=True)
     seite = db.Column(db.String(100), nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship("Vorgangsposition", back_populates="beschluesse", lazy=False)
+    position = db.relationship("Vorgangsposition", back_populates="beschluesse", lazy=True)
 
 
 class BeschlussfassungDisplay:  # not an actual database class, used for modifications before display
@@ -77,7 +77,7 @@ class Fundstelle(db.Model):
         uselist=False,
         cascade="all, delete-orphan",
     )
-    position = db.relationship("Vorgangsposition", back_populates="fundstelle", lazy=False)
+    position = db.relationship("Vorgangsposition", back_populates="fundstelle", lazy=True)
 
 
 class Ueberweisung(db.Model):
@@ -88,7 +88,7 @@ class Ueberweisung(db.Model):
     ausschuss_kuerzel = db.Column(db.String(250), nullable=True)
     federfuehrung = db.Column(db.Boolean, nullable=True)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship("Vorgangsposition", back_populates="ueberweisungen", lazy=False)
+    position = db.relationship("Vorgangsposition", back_populates="ueberweisungen", lazy=True)
 
 
 class NewsArticle(db.Model):
@@ -101,7 +101,7 @@ class NewsArticle(db.Model):
     url = db.Column(db.Text, nullable=True)
     publisher = db.Column(db.Text, nullable=True)
     summary_id = db.Column(db.Integer, db.ForeignKey("summaries.id"), nullable=False)
-    summary = db.relationship("NewsSummary", back_populates="articles", lazy=False)
+    summary = db.relationship("NewsSummary", back_populates="articles", lazy=True)
 
 
 class NewsSummary(db.Model):
@@ -114,11 +114,11 @@ class NewsSummary(db.Model):
     articles: ClassVar[List[NewsArticle]] = db.relationship(
         "NewsArticle",
         back_populates="summary",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship("Vorgangsposition", back_populates="summary", lazy=False)
+    position = db.relationship("Vorgangsposition", back_populates="summary", lazy=True)
 
 
 class NewsUpdateCandidate(db.Model):
@@ -129,7 +129,7 @@ class NewsUpdateCandidate(db.Model):
     next_update = db.Column(db.Date, nullable=True)
     update_count = db.Column(db.Integer, nullable=True, default=0)
     positions_id = db.Column(db.Integer, db.ForeignKey("positionen.id"), nullable=False)
-    position = db.relationship("Vorgangsposition", back_populates="update_candidate", lazy=False)
+    position = db.relationship("Vorgangsposition", back_populates="update_candidate", lazy=True)
 
 
 class SavedNewsUpdateCandidate:  # not an actual database class, used to roll back changes in case of gnews error
@@ -161,39 +161,39 @@ class Vorgangsposition(db.Model):
     ueberweisungen: ClassVar[List[Ueberweisung]] = db.relationship(
         "Ueberweisung",
         back_populates="position",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     fundstelle: ClassVar[Fundstelle] = db.relationship(
         "Fundstelle",
         back_populates="position",
-        lazy=False,
+        lazy=True,
         uselist=False,
         cascade="all, delete-orphan",
     )
     beschluesse: ClassVar[List[Beschlussfassung]] = db.relationship(
         "Beschlussfassung",
         back_populates="position",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     summary: ClassVar[Fundstelle] = db.relationship(
         "NewsSummary",
         back_populates="position",
-        lazy=False,
+        lazy=True,
         uselist=False,
         cascade="all, delete-orphan",
     )
     update_candidate: ClassVar[NewsUpdateCandidate] = db.relationship(
         "NewsUpdateCandidate",
         back_populates="position",
-        lazy=False,
+        lazy=True,
         uselist=False,
         cascade="all, delete-orphan",
     )
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    gesetz = db.relationship("GesetzesVorhaben", back_populates="vorgangspositionen", lazy=False)
+    gesetz = db.relationship("GesetzesVorhaben", back_populates="vorgangspositionen", lazy=True)
 
 
 class Verkuendung(db.Model):
@@ -207,7 +207,7 @@ class Verkuendung(db.Model):
     fundstelle = db.Column(db.String(250), nullable=True)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    vorhaben = db.relationship("GesetzesVorhaben", back_populates="verkuendung", lazy=False)
+    vorhaben = db.relationship("GesetzesVorhaben", back_populates="verkuendung", lazy=True)
 
 
 class Inkrafttreten(db.Model):
@@ -218,7 +218,7 @@ class Inkrafttreten(db.Model):
     erlaeuterung = db.Column(db.Text)
 
     vorgangs_id = db.Column(db.Integer, db.ForeignKey("vorhaben.id"), nullable=False)
-    vorhaben = db.relationship("GesetzesVorhaben", back_populates="inkrafttreten", lazy=False)
+    vorhaben = db.relationship("GesetzesVorhaben", back_populates="inkrafttreten", lazy=True)
 
 
 class GesetzesVorhaben(db.Model):
@@ -241,19 +241,19 @@ class GesetzesVorhaben(db.Model):
     vorgangspositionen: ClassVar[List[Vorgangsposition]] = db.relationship(
         "Vorgangsposition",
         back_populates="gesetz",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     verkuendung: ClassVar[List[Verkuendung]] = db.relationship(
         "Verkuendung",
         back_populates="vorhaben",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     inkrafttreten: ClassVar[List[Inkrafttreten]] = db.relationship(
         "Inkrafttreten",
         back_populates="vorhaben",
-        lazy=False,
+        lazy=True,
         cascade="all, delete-orphan",
     )
     queries = db.Column(db.ARRAY(db.String(250)), nullable=True, default=[])
