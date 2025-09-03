@@ -11,6 +11,7 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.types.io import DocumentStream
 from pypdfium2 import PdfDocument
 from sqlalchemy import inspect
+from sqlalchemy.orm import defer
 
 from gesetzgebung.infrastructure.elasticsearch import update_law_in_es
 from gesetzgebung.infrastructure.logger import log_indent

@@ -115,6 +115,7 @@ def update_news_update_candidates() -> None:
     # create a candidate_groups list of dicts that have law ids as keys, and a list of NewsUpdateCandidates corresponding to that law id, in reverse chronological order, as values (if this runs daily, there should only be 1-2 NewsUpdateCandidate per law, but there will be many when first populating the database). We need not worry about several NewsUpdateCandidates of a given law being on the same date, as this is prevented in update_positionen when adding NewsUpdateCandidates
     all_candidates = (
         db.session.query(NewsUpdateCandidate)
+        .where(NewsUpdateCandidate.next_update <= now)
         .join(Vorgangsposition)
         .join(GesetzesVorhaben)
         .order_by(GesetzesVorhaben.id, Vorgangsposition.datum)
@@ -171,11 +172,7 @@ def update_news_update_candidates() -> None:
                 next(inf for inf in infos if inf["id"] == candidates[i - 1].position.id) if i > 0 else dummy_info
             )
 
-            # skip if candidate has already been updated and is not due for its next update
-            if candidate.next_update and candidate.next_update > now:
-                continue
-
-            # otherwise, save for rollback, as changes are about to be made
+            # save for rollback, as changes are about to be made
             saved_for_rollback[-1].append(SavedNewsUpdateCandidate(candidate))
 
             # remove below condition to update a law's search queries within defined intervals instead of just once. Might make sense if the llm is periodically upgraded to a newer model with up-to-date training data and/or web search abilities that would allow it to catch new ways that a law is being referred to in common parlance. Still undecided about this.
