@@ -163,8 +163,7 @@ def update_positionen(law: GesetzesVorhaben) -> None:
         response_data = response.json()
         for item in response_data.get("documents", []):
             dip_id = item.get("id", None)
-            logger.debug(f"Processing Vorgangsposition: {item.get('vorgangsposition', None)} with dip id: {dip_id}")
-
+            
             if (position := get_position_by_dip_id(dip_id)) is None:
                 logger.info(
                     f"Vorgangsposition: {item.get('vorgangsposition', None)} does not yet exist in the database. Creating new database entry with dip id: {dip_id}."
@@ -174,7 +173,7 @@ def update_positionen(law: GesetzesVorhaben) -> None:
                 db.session.add(position)
             else:
                 logger.debug(
-                    f"Vorgangsposition with dip id: {dip_id} already present in the database under internal id: {position.id}, may update values though."
+                    f"Vorgangsposition {item.get('vorgangsposition', None)} with dip id: {dip_id} already present in the database under internal id: {position.id}, may update values though."
                 )
                 new_newsworthy_position = False
 
