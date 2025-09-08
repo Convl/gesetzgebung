@@ -12,6 +12,7 @@ from googlenewsdecoder import gnewsdecoder
 from openai import OpenAI
 from sqlalchemy import or_
 
+
 from gesetzgebung.infrastructure.logger import log_indent
 from gesetzgebung.infrastructure.models import (
     GesetzesVorhaben,
@@ -116,7 +117,7 @@ def update_news_update_candidates() -> None:
     # create a candidate_groups list of dicts that have law ids as keys, and a list of NewsUpdateCandidates corresponding to that law id, in reverse chronological order, as values (if this runs daily, there should only be 1-2 NewsUpdateCandidate per law, but there will be many when first populating the database). We need not worry about several NewsUpdateCandidates of a given law being on the same date, as this is prevented in update_positionen when adding NewsUpdateCandidates
     all_candidates = (
         db.session.query(NewsUpdateCandidate)
-        .where(or_(NewsUpdateCandidate.next_update <= now, NewsUpdateCandidate.next_update is None))
+        .where(or_(NewsUpdateCandidate.next_update <= now, NewsUpdateCandidate.next_update.is_(None)))
         .join(Vorgangsposition)
         .join(GesetzesVorhaben)
         .order_by(GesetzesVorhaben.id, Vorgangsposition.datum)
