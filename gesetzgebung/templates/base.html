@@ -17,10 +17,10 @@
         <input type="text" id="law_search_term" placeholder="Suche nach Gesetzen..." autocomplete="off" >
         <div id="suggestions" class="autocomplete-suggestions"></div>
     </div>
+    <h6 style="width: min(100%, 800px); margin: 20px auto;"><span style="color: red">Note</span>: Depending on your search term, multiple seemingly identical results may appear (e.g. when typing "Batterie"). Clicking on them will, however, reveal different legislative initiatives that happen to share the same title. This is not a bug, and mirrors the behaviour on the <a href="https://dip.bundestag.de">official German legislative database</a>. Even so, this will be adressed for a better user experience in a future update.</h6>
 
     <hr>
     <div id="content">{% block content %}{% endblock %}</div>
     <script src="{{ url_for('static', filename='autoComplete.js') }}"> </script>
-
 </body>
 </html>
