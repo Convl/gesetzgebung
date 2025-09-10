@@ -23,7 +23,7 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/submit/<law_titel>", methods=["GET"])
+@app.route("/submit/<path:law_titel>", methods=["GET"])
 def submit(law_titel):
     law_id = request.args.get("law_id")
     if not law_id or not (law := get_law_by_id(law_id)):
