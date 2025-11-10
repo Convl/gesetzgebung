@@ -82,6 +82,8 @@ def get_structured_data_from_ai(
             ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL)
             ai_response = re.sub(r"```json\n(.*?)\n```", r"\1", ai_response, flags=re.DOTALL)
             ai_response = json.loads(ai_response).get(subfield, None) if subfield else json.loads(ai_response)
+            if not ai_response:
+                raise
             return ai_response
 
         except Exception as e:

@@ -12,7 +12,6 @@ from googlenewsdecoder import gnewsdecoder
 from openai import OpenAI
 from sqlalchemy import or_
 
-
 from gesetzgebung.infrastructure.logger import log_indent
 from gesetzgebung.infrastructure.models import (
     GesetzesVorhaben,
