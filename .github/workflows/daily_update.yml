@@ -2,25 +2,37 @@
 name: Daily Update
 on:
   schedule:
-    - cron: '0 22 * * *'  # Runs at midnight German time daily
-  workflow_dispatch:  
+    - cron: "0 22 * * *" # Runs at midnight German time daily
+  workflow_dispatch:
 
 jobs:
   update:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
     steps:
+      # Free up disk space
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       # Checkout repo
       - name: Checkout
         uses: actions/checkout@v3
         with:
           ref: main
-      
+
       # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.12"
+          cache: "pip"
 
       # Install and generate German locale
       - name: Set up German locale
@@ -37,7 +49,6 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            /opt/hostedtoolcache/Python/3.12.10/x64/lib/python3.12/site-packages/
             ~/.cache/huggingface
             ~/.cache/torch
             ~/.cache/docling
